@@ -106,17 +106,31 @@ class ModernismePlayer(Player):
                     slot.place_card(work, self)
 
                     # Score immediate VP
-                    vp_gain = work_vp
+                    base_vp = work_vp
+                    bonus_vp = 0
 
                     # Bonus VP if artist theme matches work theme
                     work_theme = work.get_property("theme")
+                    matching_artist = None
                     for artist in self.active_artists:
                         if artist.get_property("art_type") == work.get_property("art_type"):
                             if artist.get_property("theme") == work_theme and work_theme != Theme.NONE:
-                                vp_gain += 1
+                                bonus_vp = 1
+                                matching_artist = artist
                                 break
 
+                    vp_gain = base_vp + bonus_vp
                     self.add_score(vp_gain)
+
+                    # Detailed logging
+                    room_name = slot.get_property("room")
+                    print(f"    → Placed '{work.name}' in {room_name}")
+                    print(f"      Base VP: {base_vp}", end="")
+                    if bonus_vp > 0:
+                        print(f" + {bonus_vp} (theme bonus from {matching_artist.name})", end="")
+                    print(f" = {vp_gain} VP total")
+                    print(f"      {self.name}'s total score: {self.score} VP")
+
                     return True
 
         return False
@@ -328,7 +342,7 @@ def play_modernisme_game():
     print("=" * 60)
 
     game = ModernismeGame()
-    game.setup_game(num_players=2)
+    game.setup_game(num_players=4)
 
     # Play 4 seasons
     for season in range(1, 5):
@@ -357,11 +371,12 @@ def play_modernisme_game():
 
     # Final scoring
     print("\n" + "=" * 60)
-    print("FINAL SCORING")
+    print("FINAL SCORING - Room Completion Bonuses")
     print("=" * 60)
 
     for player in game.players:
         board = game.get_board(f"{player.name}_board")
+        print(f"\n{player.name}:")
 
         # Check completed rooms
         rooms = {}
@@ -376,22 +391,34 @@ def play_modernisme_game():
         room_configs = {"Dormitorio": 2, "Salón": 3, "Comedor": 3, "Biblioteca": 4}
 
         for room_name, required_works in room_configs.items():
-            if len(rooms.get(room_name, [])) == required_works:
+            works_in_room = rooms.get(room_name, [])
+            print(f"  {room_name}: {len(works_in_room)}/{required_works} works", end="")
+
+            if len(works_in_room) == required_works:
+                print(" (COMPLETE)", end="")
                 works = rooms[room_name]
+                bonuses_earned = []
 
                 # Check if all same type
                 types = [w.get_property("art_type") for w in works]
                 if len(set(types)) == 1:
                     bonus = required_works
                     player.add_score(bonus)
-                    print(f"  {player.name}: +{bonus} VP for completing {room_name} (same type)")
+                    bonuses_earned.append(f"same type: +{bonus} VP")
 
                 # Check if all same theme
                 themes = [w.get_property("theme") for w in works if w.get_property("theme") != Theme.NONE]
                 if len(themes) == required_works and len(set(themes)) == 1:
                     bonus = required_works
                     player.add_score(bonus)
-                    print(f"  {player.name}: +{bonus} VP for completing {room_name} (same theme)")
+                    bonuses_earned.append(f"same theme: +{bonus} VP")
+
+                if bonuses_earned:
+                    print(f" → {', '.join(bonuses_earned)}")
+                else:
+                    print()
+            else:
+                print()
 
     # Determine winner
     print("\n" + "=" * 60)
