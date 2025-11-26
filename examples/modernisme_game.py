@@ -124,7 +124,8 @@ class ModernismePlayer(Player):
 
                     # Detailed logging
                     room_name = slot.get_property("room")
-                    print(f"    → Placed '{work.name}' in {room_name}")
+                    space_id = slot.get_property("space_id")
+                    print(f"    → Placed '{work.name}' in {room_name} (space {space_id})")
                     print(f"      Base VP: {base_vp}", end="")
                     if bonus_vp > 0:
                         print(f" + {bonus_vp} (theme bonus from {matching_artist.name})", end="")
@@ -268,22 +269,53 @@ class ModernismeGame(Game):
         return artists
 
     def _create_player_board(self, player_name: str) -> Board:
-        """Create a player board with 4 rooms."""
+        """Create a player board matching the actual game layout with 15 spaces in 5 rooms."""
         board = Board(f"{player_name}'s House")
 
-        # Create 4 rooms with different sizes
-        room_configs = [
-            ("Dormitorio", 2),
-            ("Salón", 3),
-            ("Comedor", 3),
-            ("Biblioteca", 4)
+        # Grid layout (3 rows x 5 columns):
+        # Row 1: [0] [1] [2] | [3] [4]
+        # Row 2: [5] [6] [7] || [8] [9]
+        # Row 3: [10] [11] | [12] [13] [14]
+
+        # Room assignments:
+        # Salón: 0, 1, 2 (3 spaces, top left)
+        # Comedor: 5, 6, 7 (3 spaces, middle left)
+        # Biblioteca: 3, 4, 8, 9 (4 spaces, top/middle right)
+        # Dormitorio: 10, 11 (2 spaces, bottom left)
+        # Vestíbulo: 12, 13, 14 (3 spaces, bottom right/center)
+
+        room_layout = [
+            (0, "Salón", 1), (1, "Salón", 2), (2, "Salón", 3),
+            (3, "Biblioteca", 1), (4, "Biblioteca", 2),
+            (5, "Comedor", 1), (6, "Comedor", 2), (7, "Comedor", 3),
+            (8, "Biblioteca", 3), (9, "Biblioteca", 4),
+            (10, "Dormitorio", 1), (11, "Dormitorio", 2),
+            (12, "Vestíbulo", 1), (13, "Vestíbulo", 2), (14, "Vestíbulo", 3)
         ]
 
-        for room_name, num_slots in room_configs:
-            for i in range(num_slots):
-                slot = Slot(f"{room_name}_{i+1}", max_cards=1)
-                slot.set_property("room", room_name)
-                board.add_slot(slot)
+        # Create slots
+        slots_by_id = {}
+        for space_id, room_name, room_slot_num in room_layout:
+            slot = Slot(f"{room_name}_{room_slot_num}", max_cards=1)
+            slot.set_property("room", room_name)
+            slot.set_property("space_id", space_id)
+            slot.set_property("adjacent_spaces", [])  # Will populate next
+            board.add_slot(slot)
+            slots_by_id[space_id] = slot
+
+        # Define door adjacencies (spaces connected by doors)
+        door_connections = [
+            (0, 5),   # Salón ↔ Comedor
+            (2, 3),   # Salón ↔ Biblioteca
+            (7, 12),  # Comedor ↔ Vestíbulo
+            (11, 12), # Dormitorio ↔ Vestíbulo
+            (8, 13)   # Biblioteca ↔ Vestíbulo
+        ]
+
+        # Set up adjacency lists
+        for space1, space2 in door_connections:
+            slots_by_id[space1].get_property("adjacent_spaces").append(space2)
+            slots_by_id[space2].get_property("adjacent_spaces").append(space1)
 
         return board
 
@@ -387,8 +419,14 @@ def play_modernisme_game():
             if not slot.is_empty():
                 rooms[room_name].append(slot.get_cards()[0])
 
-        # Room bonuses (simplified)
-        room_configs = {"Dormitorio": 2, "Salón": 3, "Comedor": 3, "Biblioteca": 4}
+        # Room bonuses
+        room_configs = {
+            "Dormitorio": 2,
+            "Salón": 3,
+            "Comedor": 3,
+            "Biblioteca": 4,
+            "Vestíbulo": 3
+        }
 
         for room_name, required_works in room_configs.items():
             works_in_room = rooms.get(room_name, [])
