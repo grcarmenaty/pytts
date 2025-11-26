@@ -90,6 +90,10 @@ class ModernismePlayer(Player):
         if total_vp < work_vp:
             return False
 
+        # Log discarded cards
+        discard_names = [f"{card.name} ({card.get_property('vp', 0)} VP)" for card in discard_cards]
+        print(f"    Discarded: {', '.join(discard_names)} (total {total_vp} VP)")
+
         # Discard cards
         for card in discard_cards:
             self.hand.remove_card(card)
@@ -144,6 +148,7 @@ class ModernismeGame(Game):
         super().__init__("Modernisme")
         self.artist_discard: List[Card] = []  # Artist discard pile
         self.season = 1  # Current season (1-4)
+        self.first_player_idx = 0  # Index of first player
 
     def setup_game(self, num_players: int = 2):
         """Set up a game of Modernisme."""
@@ -345,24 +350,38 @@ class ModernismeGame(Game):
         """Handle end of season: pass discards and refill hands."""
         print(f"\n=== End of Season {self.season} ===")
 
-        # Pass discards counter-clockwise
+        # Pass discards counter-clockwise (to the right in player list)
         discards_to_pass = []
         for player in self.players:
             discards_to_pass.append(player.discard_pile[:])
             player.discard_pile = []
 
+        print("\nPassing discards counterclockwise:")
         for i, player in enumerate(self.players):
-            next_idx = (i - 1) % len(self.players)
-            for card in discards_to_pass[next_idx]:
-                player.hand.add_card(card)
+            # Counterclockwise = next player in list (wraps around)
+            next_idx = (i + 1) % len(self.players)
+            cards_received = discards_to_pass[i]
+            if cards_received:
+                print(f"  {self.players[next_idx].name} receives {len(cards_received)} cards from {player.name}")
+                for card in cards_received:
+                    self.players[next_idx].hand.add_card(card)
 
         # Refill hands to 6 cards
         work_deck = self.get_deck("works")
+        print("\nRefilling hands to 6 cards:")
         for player in self.players:
+            cards_before = len(player.hand)
             while len(player.hand) < 6 and not work_deck.is_empty():
                 cards = work_deck.draw(1)
                 if cards:
                     player.hand.add_card(cards[0])
+            cards_drawn = len(player.hand) - cards_before
+            if cards_drawn > 0:
+                print(f"  {player.name} drew {cards_drawn} cards (now has {len(player.hand)})")
+
+        # First player marker passes clockwise (to previous player in counterclockwise order)
+        self.first_player_idx = (self.first_player_idx - 1) % len(self.players)
+        print(f"\nFirst player for next season: {self.players[self.first_player_idx].name}")
 
         self.season += 1
 
@@ -380,10 +399,14 @@ def play_modernisme_game():
     for season in range(1, 5):
         print(f"\n{'='*60}")
         print(f"SEASON {season}")
+        print(f"First player: {game.players[game.first_player_idx].name}")
         print('='*60)
 
-        # Each player takes a turn
-        for player in game.players:
+        # Each player takes a turn in counterclockwise order from first player
+        for offset in range(len(game.players)):
+            player_idx = (game.first_player_idx + offset) % len(game.players)
+            player = game.players[player_idx]
+
             print(f"\n--- {player.name}'s Turn ---")
 
             # Phase 1: Talent Hunt
