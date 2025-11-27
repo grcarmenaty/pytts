@@ -306,7 +306,7 @@ class ModernismeGame(Game):
         """Set up a game of Modernisme."""
         # Create players with random strategies
         print("\nPlayer Strategies:")
-        player_names = ["Alice", "Bob", "Carol", "David"]
+        player_names = ["player 1", "player 2", "player 3", "player 4"]
         for i in range(num_players):
             strategy = get_random_strategy()
             player = ModernismePlayer(player_names[i], strategy=strategy)

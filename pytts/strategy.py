@@ -377,6 +377,25 @@ class EncargoStrategy(Strategy):
         return max(commissionable, key=lambda w: w.get_property("vp", 0))
 
 
+class RandomStrategy(Strategy):
+    """Random strategy - selects works randomly as a baseline for comparison."""
+
+    def __init__(self):
+        super().__init__("Random")
+
+    def select_work(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame'
+    ) -> Optional['Card']:
+        """Select a random commissionable work."""
+        commissionable = self.get_commissionable_works(player)
+        if not commissionable:
+            return None
+
+        return random.choice(commissionable)
+
+
 # List of all available strategies
 ALL_STRATEGIES = [
     RoomThemeTypeStrategy,
@@ -384,7 +403,8 @@ ALL_STRATEGIES = [
     HighValueWorksStrategy,
     ModaTemaStrategy,
     ModaConjuntoStrategy,
-    EncargoStrategy
+    EncargoStrategy,
+    RandomStrategy
 ]
 
 
