@@ -80,69 +80,85 @@ class ModernismePlayer(Player):
             else:
                 break  # Can't commission anymore
 
+        # Reset pool at end of turn
+        if self.pool > 0:
+            print(f"  {self.pool} VP remaining in pool discarded at end of turn")
+        self.pool = 0
+
     def _try_commission_work(self, work: Card, game: 'ModernismeGame') -> bool:
-        """Try to commission a specific work, minimizing overspending."""
+        """Try to commission a specific work using the VP pool system."""
         work_vp = work.get_property("vp", 0)
 
-        # Get available cards for discarding (excluding the work itself)
-        available_cards = [c for c in self.hand.cards if c != work]
+        # Check if we need to discard more cards to reach required VP
+        vp_needed = work_vp - self.pool
 
-        if not available_cards:
-            return False
+        if vp_needed > 0:
+            # Need to discard more cards
+            available_cards = [c for c in self.hand.cards if c != work]
 
-        # Find the best combination of cards to discard that minimizes overspending
-        # Sort cards by VP value
-        card_vps = [(card, card.get_property("vp", 0)) for card in available_cards]
-        card_vps.sort(key=lambda x: x[1])
+            if not available_cards:
+                return False
 
-        best_discard = None
-        best_overspend = float('inf')
+            # Find the best combination of cards to discard
+            card_vps = [(card, card.get_property("vp", 0)) for card in available_cards]
+            card_vps.sort(key=lambda x: x[1])
 
-        # Try to find combinations that meet the requirement
-        # Use a greedy approach: try starting with larger cards first
-        for i in range(len(card_vps)):
+            best_discard = None
+            best_overspend = float('inf')
+
+            # Try to find combinations that meet the requirement
+            for i in range(len(card_vps)):
+                discard_cards = []
+                total_vp = 0
+
+                for j in range(i, len(card_vps)):
+                    card, vp = card_vps[j]
+                    discard_cards.append(card)
+                    total_vp += vp
+
+                    if total_vp >= vp_needed:
+                        overspend = total_vp - vp_needed
+                        if overspend < best_overspend:
+                            best_overspend = overspend
+                            best_discard = discard_cards[:]
+                        break
+
+            # Also try greedy approach from smallest to largest
             discard_cards = []
             total_vp = 0
+            for card, vp in card_vps:
+                if total_vp < vp_needed:
+                    discard_cards.append(card)
+                    total_vp += vp
 
-            # Start with current card and add smaller cards as needed
-            for j in range(i, len(card_vps)):
-                card, vp = card_vps[j]
-                discard_cards.append(card)
-                total_vp += vp
+            if total_vp >= vp_needed:
+                overspend = total_vp - vp_needed
+                if overspend < best_overspend:
+                    best_overspend = overspend
+                    best_discard = discard_cards[:]
 
-                if total_vp >= work_vp:
-                    overspend = total_vp - work_vp
-                    if overspend < best_overspend:
-                        best_overspend = overspend
-                        best_discard = discard_cards[:]
-                    break
+            if best_discard is None:
+                return False
 
-        # Also try greedy approach from smallest to largest
-        discard_cards = []
-        total_vp = 0
-        for card, vp in card_vps:
-            if total_vp < work_vp:
-                discard_cards.append(card)
-                total_vp += vp
+            # Discard cards and add their VP to the pool
+            discard_vp = sum(card.get_property("vp", 0) for card in best_discard)
+            discard_names = [f"{card.name} ({card.get_property('vp', 0)} VP)" for card in best_discard]
+            print(f"    Discarded: {', '.join(discard_names)} (added {discard_vp} VP to pool)")
 
-        if total_vp >= work_vp:
-            overspend = total_vp - work_vp
-            if overspend < best_overspend:
-                best_overspend = overspend
-                best_discard = discard_cards[:]
+            for card in best_discard:
+                self.hand.remove_card(card)
+                self.discard_pile.append(card)
+                self.pool += card.get_property("vp", 0)
 
-        if best_discard is None:
+        # Now we should have enough VP in the pool
+        if self.pool < work_vp:
             return False
 
-        # Log discarded cards
-        total_vp = sum(card.get_property("vp", 0) for card in best_discard)
-        discard_names = [f"{card.name} ({card.get_property('vp', 0)} VP)" for card in best_discard]
-        print(f"    Discarded: {', '.join(discard_names)} (total {total_vp} VP for {work_vp} VP work, overspend: {best_overspend} VP)")
+        print(f"    Pool before commission: {self.pool} VP")
 
-        # Discard cards
-        for card in best_discard:
-            self.hand.remove_card(card)
-            self.discard_pile.append(card)
+        # Spend from pool
+        self.pool -= work_vp
+        print(f"    Spent {work_vp} VP from pool, remaining: {self.pool} VP")
 
         # Remove work from hand
         self.hand.remove_card(work)

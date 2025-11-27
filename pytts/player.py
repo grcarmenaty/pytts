@@ -27,6 +27,7 @@ class Player:
         self.hand = Hand(max_size=hand_max_size)
         self.score = 0
         self.is_active = True
+        self.pool = 0  # VP pool for current turn
 
     def strategy(self, game: 'Game') -> None:
         """
