@@ -383,32 +383,21 @@ class ModernismeGame(Game):
             )
             cards.append(card)
 
-        # Mixed objectives - add more variety (at least 5 more cards for 4 players)
+        # Mixed objectives (3 cards to total 10 encargo cards)
         mixed_objectives = [
             ("2 Reliquias + 2 Esculturas", [ArtType.RELIC, ArtType.SCULPTURE], [2, 2], 3),
             ("2 Reliquias + 2 Pinturas", [ArtType.RELIC, ArtType.PAINTING], [2, 2], 3),
             ("2 Artesanías + 2 Pinturas", [ArtType.CRAFTS, ArtType.PAINTING], [2, 2], 3),
-            ("3 different types", [ArtType.CRAFTS, ArtType.PAINTING, ArtType.SCULPTURE], [1, 1, 1], 3),
-            ("2 works of each color", None, None, 3),  # Special - will handle separately
         ]
 
         for name, req_types, req_counts, vp in mixed_objectives:
-            if req_types is not None:
-                card = Card(
-                    name,
-                    objective_type="mixed",
-                    required_types=req_types,
-                    required_counts=req_counts,
-                    vp=vp
-                )
-            else:
-                # Special "2 of each color" objective
-                card = Card(
-                    name,
-                    objective_type="all_themes",
-                    required_count=2,
-                    vp=vp
-                )
+            card = Card(
+                name,
+                objective_type="mixed",
+                required_types=req_types,
+                required_counts=req_counts,
+                vp=vp
+            )
             cards.append(card)
 
         return cards
@@ -646,15 +635,6 @@ class ModernismeGame(Game):
                         actual = type_counts.get(req_type, 0)
                         min_sets = min(min_sets, actual // req_count)
                     times_completed = int(min_sets) if min_sets != float('inf') else 0
-
-                elif obj_type == "all_themes":
-                    required_count = encargo.get_property("required_count")
-                    # Check if player has at least required_count of ALL 4 themes
-                    min_count = float('inf')
-                    for theme in [Theme.NATURE, Theme.MYTHOLOGY, Theme.SOCIETY, Theme.ORIENTALISM]:
-                        actual = theme_counts.get(theme, 0)
-                        min_count = min(min_count, actual)
-                    times_completed = int(min_count // required_count) if min_count != float('inf') else 0
 
                 if times_completed > 0:
                     vp_earned = times_completed * vp_per
