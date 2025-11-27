@@ -27,7 +27,7 @@ class Theme(Enum):
     """Themes for works and artists."""
     NATURE = "Naturaleza"  # Green
     MYTHOLOGY = "Mitología"  # Blue
-    SOCIETY = "Sociedad"  # Yellow
+    SOCIETY = "Costumbrismo"  # Yellow
     ORIENTALISM = "Orientalismo"  # Red
     NONE = "Sin tema"  # For relics
 
@@ -72,30 +72,66 @@ class ModernismePlayer(Player):
                     break
 
     def _try_commission_work(self, work: Card, game: 'ModernismeGame') -> bool:
-        """Try to commission a specific work."""
+        """Try to commission a specific work, minimizing overspending."""
         work_vp = work.get_property("vp", 0)
 
-        # Find cards to discard (must sum >= work VP)
+        # Get available cards for discarding (excluding the work itself)
+        available_cards = [c for c in self.hand.cards if c != work]
+
+        if not available_cards:
+            return False
+
+        # Find the best combination of cards to discard that minimizes overspending
+        # Sort cards by VP value
+        card_vps = [(card, card.get_property("vp", 0)) for card in available_cards]
+        card_vps.sort(key=lambda x: x[1])
+
+        best_discard = None
+        best_overspend = float('inf')
+
+        # Try to find combinations that meet the requirement
+        # Use a greedy approach: try starting with larger cards first
+        for i in range(len(card_vps)):
+            discard_cards = []
+            total_vp = 0
+
+            # Start with current card and add smaller cards as needed
+            for j in range(i, len(card_vps)):
+                card, vp = card_vps[j]
+                discard_cards.append(card)
+                total_vp += vp
+
+                if total_vp >= work_vp:
+                    overspend = total_vp - work_vp
+                    if overspend < best_overspend:
+                        best_overspend = overspend
+                        best_discard = discard_cards[:]
+                    break
+
+        # Also try greedy approach from smallest to largest
         discard_cards = []
         total_vp = 0
+        for card, vp in card_vps:
+            if total_vp < work_vp:
+                discard_cards.append(card)
+                total_vp += vp
 
-        for card in self.hand.cards:
-            if card == work:
-                continue
-            discard_cards.append(card)
-            total_vp += card.get_property("vp", 0)
-            if total_vp >= work_vp:
-                break
+        if total_vp >= work_vp:
+            overspend = total_vp - work_vp
+            if overspend < best_overspend:
+                best_overspend = overspend
+                best_discard = discard_cards[:]
 
-        if total_vp < work_vp:
+        if best_discard is None:
             return False
 
         # Log discarded cards
-        discard_names = [f"{card.name} ({card.get_property('vp', 0)} VP)" for card in discard_cards]
-        print(f"    Discarded: {', '.join(discard_names)} (total {total_vp} VP)")
+        total_vp = sum(card.get_property("vp", 0) for card in best_discard)
+        discard_names = [f"{card.name} ({card.get_property('vp', 0)} VP)" for card in best_discard]
+        print(f"    Discarded: {', '.join(discard_names)} (total {total_vp} VP for {work_vp} VP work, overspend: {best_overspend} VP)")
 
         # Discard cards
-        for card in discard_cards:
+        for card in best_discard:
             self.hand.remove_card(card)
             self.discard_pile.append(card)
 
@@ -215,41 +251,31 @@ class ModernismeGame(Game):
         print(f"Each player has 6 work cards, 2 active artists, and 1 secret commission.")
 
     def _create_work_deck(self) -> List[Card]:
-        """Create the deck of 112 work cards."""
+        """Create the deck of 112 work cards matching xlsx specifications."""
         works = []
-
-        # Define work types and themes
-        art_types = [
-            (ArtType.CRAFTS, 32),
-            (ArtType.PAINTING, 32),
-            (ArtType.SCULPTURE, 32),
-            (ArtType.RELIC, 16)
-        ]
 
         themes = [Theme.NATURE, Theme.MYTHOLOGY, Theme.SOCIETY, Theme.ORIENTALISM]
 
-        # Create cards for each type
-        for art_type, count in art_types:
-            cards_per_theme = count // 4 if art_type != ArtType.RELIC else 0
+        # Relics: 16 cards, all 5 VP
+        for i in range(16):
+            card = Card(
+                f"Reliquia {i+1}",
+                art_type=ArtType.RELIC,
+                theme=Theme.NONE,
+                vp=5
+            )
+            works.append(card)
 
-            if art_type == ArtType.RELIC:
-                # Relics have no theme
-                for i in range(count):
-                    vp = random.choice([2, 3, 4, 5])  # Simplified VP distribution
-                    card = Card(
-                        f"Reliquia {i+1}",
-                        art_type=art_type,
-                        theme=Theme.NONE,
-                        vp=vp
-                    )
-                    works.append(card)
-            else:
-                # Regular works have themes
-                for theme in themes:
-                    for i in range(cards_per_theme):
-                        vp = random.choice([1, 2, 2, 3, 3, 4])  # Simplified distribution
+        # Regular works: 32 of each type (Crafts, Painting, Sculpture)
+        # For each type: 2 cards of each (theme x VP) combination
+        # VP values: 1, 2, 3, 4
+        for art_type in [ArtType.CRAFTS, ArtType.PAINTING, ArtType.SCULPTURE]:
+            for theme in themes:
+                for vp in [1, 2, 3, 4]:
+                    # Create 2 cards for this combination
+                    for copy in range(2):
                         card = Card(
-                            f"{art_type.value} {theme.value} {i+1}",
+                            f"{art_type.value} {theme.value} {vp}VP-{copy+1}",
                             art_type=art_type,
                             theme=theme,
                             vp=vp
@@ -300,14 +326,14 @@ class ModernismeGame(Game):
     def _create_moda_tema_cards(self) -> List[Card]:
         """Create fashion theme cards (public objectives for themes)."""
         cards = []
-        # Simplified: need 3 works of same theme to score 2 VP
+        # Need 3 works of same theme to score 3 VP
         for theme in [Theme.NATURE, Theme.MYTHOLOGY, Theme.SOCIETY, Theme.ORIENTALISM]:
             card = Card(
                 f"3 {theme.value} works",
                 objective_type="theme",
                 required_theme=theme,
                 required_count=3,
-                vp=2
+                vp=3
             )
             cards.append(card)
         return cards
@@ -315,7 +341,7 @@ class ModernismeGame(Game):
     def _create_moda_conjunto_cards(self) -> List[Card]:
         """Create fashion set cards (public objectives for adjacent sets)."""
         cards = []
-        # Simplified: 3 adjacent works of different themes score VP
+        # 3 adjacent works of different themes score 3 VP
         theme_combos = [
             ([Theme.NATURE, Theme.MYTHOLOGY, Theme.SOCIETY], "Green-Blue-Yellow adjacents"),
             ([Theme.NATURE, Theme.MYTHOLOGY, Theme.ORIENTALISM], "Green-Blue-Red adjacents"),
@@ -327,7 +353,7 @@ class ModernismeGame(Game):
                 name,
                 objective_type="adjacent_set",
                 required_themes=themes,
-                vp=4
+                vp=3
             )
             cards.append(card)
         return cards
@@ -362,8 +388,8 @@ class ModernismeGame(Game):
             ("2 Reliquias + 2 Esculturas", [ArtType.RELIC, ArtType.SCULPTURE], [2, 2], 3),
             ("2 Reliquias + 2 Pinturas", [ArtType.RELIC, ArtType.PAINTING], [2, 2], 3),
             ("2 Artesanías + 2 Pinturas", [ArtType.CRAFTS, ArtType.PAINTING], [2, 2], 3),
-            ("3 different types", [ArtType.CRAFTS, ArtType.PAINTING, ArtType.SCULPTURE], [1, 1, 1], 2),
-            ("2 works of each color", None, None, 4),  # Special - will handle separately
+            ("3 different types", [ArtType.CRAFTS, ArtType.PAINTING, ArtType.SCULPTURE], [1, 1, 1], 3),
+            ("2 works of each color", None, None, 3),  # Special - will handle separately
         ]
 
         for name, req_types, req_counts, vp in mixed_objectives:
