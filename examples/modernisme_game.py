@@ -43,6 +43,7 @@ class ModernismePlayer(Player):
         self.commission_card: Optional[Card] = None  # Secret objective
         self.completed_rooms: List[int] = []  # Track which rooms are complete
         self.ai_strategy: Optional[Strategy] = strategy  # AI strategy
+        self.reliquia_themes: dict = {}  # Maps reliquia card to assigned theme
 
     def strategy(self, game: 'ModernismeGame') -> None:
         """
@@ -183,6 +184,95 @@ class ModernismePlayer(Player):
                     return True
 
         return False
+
+    def assign_reliquia_themes(self, game: 'ModernismeGame') -> None:
+        """
+        Assign optimal themes to all placed Reliquias.
+
+        This is done at the end of the game to maximize bonuses.
+        """
+        board = game.get_board(f"{self.name}_board")
+        if not board:
+            return
+
+        # Find all placed Reliquias
+        reliquias = []
+        for slot in board.slots:
+            if not slot.is_empty():
+                work = slot.get_cards()[0]
+                if work.get_property("art_type") == ArtType.RELIC:
+                    reliquias.append((work, slot))
+
+        if not reliquias:
+            return
+
+        print(f"\n{self.name} contextualizing Reliquias:")
+
+        # For each Reliquia, determine the best theme
+        for work, slot in reliquias:
+            best_theme = self._find_best_theme_for_reliquia(work, slot, game)
+            self.reliquia_themes[work] = best_theme
+            print(f"  {work.name} → {best_theme.value} theme")
+
+    def _find_best_theme_for_reliquia(self, reliquia: Card, slot: 'Slot', game: 'ModernismeGame') -> Theme:
+        """Find the best theme to assign to a Reliquia."""
+        board = game.get_board(f"{self.name}_board")
+        room_name = slot.get_property("room")
+
+        # Score each theme option
+        theme_scores = {theme: 0 for theme in [Theme.NATURE, Theme.MYTHOLOGY, Theme.SOCIETY, Theme.ORIENTALISM]}
+
+        # Check which theme would complete room bonus
+        for theme in theme_scores.keys():
+            # Temporarily assign this theme
+            temp_theme_count = {t: 0 for t in [Theme.NATURE, Theme.MYTHOLOGY, Theme.SOCIETY, Theme.ORIENTALISM]}
+            room_works = []
+
+            for s in board.slots:
+                if s.get_property("room") == room_name and not s.is_empty():
+                    w = s.get_cards()[0]
+                    room_works.append(w)
+                    if w == reliquia:
+                        temp_theme_count[theme] += 1
+                    elif w.get_property("art_type") == ArtType.RELIC and w in self.reliquia_themes:
+                        temp_theme_count[self.reliquia_themes[w]] += 1
+                    elif w.get_property("theme") != Theme.NONE:
+                        temp_theme_count[w.get_property("theme")] += 1
+
+            # Check if this would give same-theme bonus
+            room_size = sum(1 for s in board.slots if s.get_property("room") == room_name)
+            if len(room_works) == room_size:
+                # Room is complete
+                for t, count in temp_theme_count.items():
+                    if count == room_size and t == theme:
+                        theme_scores[theme] += room_size * 2  # Room bonus worth a lot
+
+        # Check which theme helps with moda_tema
+        if game.moda_tema:
+            required_theme = game.moda_tema.get_property("required_theme")
+            if required_theme in theme_scores:
+                theme_scores[required_theme] += 3  # Moda tema worth 3 VP
+
+        # Default: choose theme that appears most in player's works (for moda conjunto potential)
+        theme_counts = {t: 0 for t in [Theme.NATURE, Theme.MYTHOLOGY, Theme.SOCIETY, Theme.ORIENTALISM]}
+        for s in board.slots:
+            if not s.is_empty():
+                w = s.get_cards()[0]
+                if w != reliquia:
+                    if w.get_property("art_type") == ArtType.RELIC and w in self.reliquia_themes:
+                        theme_counts[self.reliquia_themes[w]] += 1
+                    elif w.get_property("theme") != Theme.NONE:
+                        theme_counts[w.get_property("theme")] += 1
+
+        # Add small bonus for balancing themes (for moda conjunto)
+        min_count = min(theme_counts.values())
+        for theme in theme_scores.keys():
+            if theme_counts[theme] == min_count:
+                theme_scores[theme] += 1  # Small bonus for less common themes
+
+        # Return theme with highest score
+        best_theme = max(theme_scores.items(), key=lambda x: x[1])[0]
+        return best_theme
 
 
 class ModernismeGame(Game):
@@ -556,7 +646,13 @@ class ModernismeGame(Game):
 
                     # Check if these 3 works form a valid set
                     works = [work, works_by_space[adj1], works_by_space[adj2]]
-                    themes = set(w.get_property("theme") for w in works)
+                    # Use assigned themes for Reliquias
+                    themes = set()
+                    for w in works:
+                        if w.get_property("art_type") == ArtType.RELIC and w in player.reliquia_themes:
+                            themes.add(player.reliquia_themes[w])
+                        else:
+                            themes.add(w.get_property("theme"))
 
                     # Must have all 3 required themes
                     if themes == set(required_themes):
@@ -590,7 +686,11 @@ class ModernismeGame(Game):
             theme_counts = {}
             for work in works:
                 art_type = work.get_property("art_type")
-                theme = work.get_property("theme")
+                # Use assigned theme for Reliquias
+                if art_type == ArtType.RELIC and work in player.reliquia_themes:
+                    theme = player.reliquia_themes[work]
+                else:
+                    theme = work.get_property("theme")
                 type_counts[art_type] = type_counts.get(art_type, 0) + 1
                 if theme != Theme.NONE:
                     theme_counts[theme] = theme_counts.get(theme, 0) + 1
@@ -709,6 +809,13 @@ def play_modernisme_game():
         if season < 4:
             game.end_season()
 
+    # Contextualize Reliquias before scoring
+    print("\n" + "=" * 60)
+    print("CONTEXTUALIZANDO RELIQUIAS")
+    print("=" * 60)
+    for player in game.players:
+        player.assign_reliquia_themes(game)
+
     # Score objectives (moda and encargo cards)
     game._score_objectives()
 
@@ -751,8 +858,13 @@ def play_modernisme_game():
                 types = [w.get_property("art_type") for w in works]
                 same_type = len(set(types)) == 1
 
-                # Check if all same theme
-                themes = [w.get_property("theme") for w in works if w.get_property("theme") != Theme.NONE]
+                # Check if all same theme (use assigned themes for Reliquias)
+                themes = []
+                for w in works:
+                    if w.get_property("art_type") == ArtType.RELIC and w in player.reliquia_themes:
+                        themes.append(player.reliquia_themes[w])
+                    elif w.get_property("theme") != Theme.NONE:
+                        themes.append(w.get_property("theme"))
                 same_theme = len(themes) == required_works and len(set(themes)) == 1
 
                 # Bonuses are NOT cumulative - only count one per room
