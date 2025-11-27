@@ -664,16 +664,28 @@ def play_modernisme_game():
 
             print(f"\n--- {player.name}'s Turn ---")
 
+            # Show hand at start of turn
+            print("Hand at start of turn:")
+            hand_cards = [f"{card.name} ({card.get_property('vp', 0)} VP)" for card in player.hand.cards]
+            print(f"  {', '.join(hand_cards)}")
+
             # Phase 1: Talent Hunt
-            print("Phase 1: Talent Hunt")
+            print("\nPhase 1: Talent Hunt")
             game.play_talent_hunt_phase(player)
 
             # Phase 2: Placement
             print("Phase 2: Commissioning Works")
             print(f"  Active artists: {[a.name for a in player.active_artists]}")
-            print(f"  Hand size: {len(player.hand)} cards")
             player.strategy(game)
-            print(f"  Score: {player.score} VP")
+
+            # Show hand at end of turn
+            print(f"\nHand at end of turn ({len(player.hand)} cards):")
+            hand_cards = [f"{card.name} ({card.get_property('vp', 0)} VP)" for card in player.hand.cards]
+            if hand_cards:
+                print(f"  {', '.join(hand_cards)}")
+            else:
+                print(f"  (empty)")
+            print(f"Score: {player.score} VP")
 
         # End of season
         if season < 4:
