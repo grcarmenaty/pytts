@@ -1,0 +1,21 @@
+card_name,objective_type,required_count,required_counts,required_type,required_types,vp
+2 Artesanías + 1 Pintura #1,mixed,,"2,1",,"Artesanía,Pintura",3
+2 Artesanías + 1 Pintura #2,mixed,,"2,1",,"Artesanía,Pintura",3
+2 Artesanías + 1 Pintura #3,mixed,,"2,1",,"Artesanía,Pintura",3
+2 Artesanías + 1 Escultura #1,mixed,,"2,1",,"Artesanía,Escultura",3
+2 Artesanías + 1 Escultura #2,mixed,,"2,1",,"Artesanía,Escultura",3
+2 Artesanías + 1 Escultura #3,mixed,,"2,1",,"Artesanía,Escultura",3
+2 Pinturas + 1 Artesanía #1,mixed,,"2,1",,"Pintura,Artesanía",3
+2 Pinturas + 1 Artesanía #2,mixed,,"2,1",,"Pintura,Artesanía",3
+2 Pinturas + 1 Artesanía #3,mixed,,"2,1",,"Pintura,Artesanía",3
+2 Pinturas + 1 Escultura #1,mixed,,"2,1",,"Pintura,Escultura",3
+2 Pinturas + 1 Escultura #2,mixed,,"2,1",,"Pintura,Escultura",3
+2 Pinturas + 1 Escultura #3,mixed,,"2,1",,"Pintura,Escultura",3
+2 Esculturas + 1 Artesanía #1,mixed,,"2,1",,"Escultura,Artesanía",3
+2 Esculturas + 1 Artesanía #2,mixed,,"2,1",,"Escultura,Artesanía",3
+2 Esculturas + 1 Artesanía #3,mixed,,"2,1",,"Escultura,Artesanía",3
+2 Esculturas + 1 Pintura #1,mixed,,"2,1",,"Escultura,Pintura",3
+2 Esculturas + 1 Pintura #2,mixed,,"2,1",,"Escultura,Pintura",3
+2 Esculturas + 1 Pintura #3,mixed,,"2,1",,"Escultura,Pintura",3
+2 Reliquias #1,type_count,2,,Reliquia,,3
+2 Reliquias #2,type_count,2,,Reliquia,,3
