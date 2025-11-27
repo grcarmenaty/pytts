@@ -18,19 +18,19 @@ from enum import Enum
 
 class ArtType(Enum):
     """Types of art/artists in the game."""
-    CRAFTS = "Artesanía"  # Artesano
-    PAINTING = "Pintura"  # Pintor
-    SCULPTURE = "Escultura"  # Escultor
-    RELIC = "Reliquia"  # Anticuario
+    CRAFTS = "Crafts"  # Craftsman
+    PAINTING = "Painting"  # Painter
+    SCULPTURE = "Sculpture"  # Sculptor
+    RELIC = "Relic"  # Antiquarian
 
 
 class Theme(Enum):
     """Themes for works and artists."""
-    NATURE = "Naturaleza"  # Green
-    MYTHOLOGY = "Mitología"  # Blue
-    SOCIETY = "Costumbrismo"  # Yellow
-    ORIENTALISM = "Orientalismo"  # Red
-    NONE = "Sin tema"  # For relics
+    NATURE = "Nature"  # Green
+    MYTHOLOGY = "Mythology"  # Blue
+    SOCIETY = "Society"  # Yellow
+    ORIENTALISM = "Orientalism"  # Red
+    NONE = "No theme"  # For relics
 
 
 class ModernismePlayer(Player):
@@ -206,9 +206,9 @@ class ModernismePlayer(Player):
         if not reliquias:
             return
 
-        print(f"\n{self.name} contextualizing Reliquias:")
+        print(f"\n{self.name} contextualizing Relics:")
 
-        # For each Reliquia, determine the best theme
+        # For each Relic, determine the best theme
         for work, slot in reliquias:
             best_theme = self._find_best_theme_for_reliquia(work, slot, game)
             self.reliquia_themes[work] = best_theme
@@ -360,7 +360,7 @@ class ModernismeGame(Game):
         # Relics: 16 cards, all 5 VP
         for i in range(16):
             card = Card(
-                f"Reliquia {i+1}",
+                f"Relic {i+1}",
                 art_type=ArtType.RELIC,
                 theme=Theme.NONE,
                 vp=5
@@ -404,7 +404,7 @@ class ModernismeGame(Game):
                 # Antiquarians have no theme
                 for i in range(count):
                     card = Card(
-                        f"Anticuario {i+1}",
+                        f"Antiquarian {i+1}",
                         art_type=art_type,
                         theme=Theme.NONE
                     )
@@ -412,9 +412,14 @@ class ModernismeGame(Game):
             else:
                 # 2 of each theme for each main type
                 cards_per_theme = count // 4
+                type_name_map = {
+                    ArtType.CRAFTS: "Craftsman",
+                    ArtType.PAINTING: "Painter",
+                    ArtType.SCULPTURE: "Sculptor"
+                }
                 for theme in themes:
                     for i in range(cards_per_theme):
-                        artist_name = f"{art_type.value.replace('ía', 'o').replace('ura', 'or')} {theme.value} {i+1}"
+                        artist_name = f"{type_name_map[art_type]} {theme.value} {i+1}"
                         card = Card(
                             artist_name,
                             art_type=art_type,
@@ -469,14 +474,14 @@ class ModernismeGame(Game):
         """
         cards = []
 
-        # All combinations of 2 and 1 of artesanía, pintura, escultura (3 of each)
+        # All combinations of 2 and 1 of crafts, painting, sculpture (3 of each)
         combinations = [
-            ("2 Artesanías + 1 Pintura", [ArtType.CRAFTS, ArtType.PAINTING], [2, 1], 3),
-            ("2 Artesanías + 1 Escultura", [ArtType.CRAFTS, ArtType.SCULPTURE], [2, 1], 3),
-            ("2 Pinturas + 1 Artesanía", [ArtType.PAINTING, ArtType.CRAFTS], [2, 1], 3),
-            ("2 Pinturas + 1 Escultura", [ArtType.PAINTING, ArtType.SCULPTURE], [2, 1], 3),
-            ("2 Esculturas + 1 Artesanía", [ArtType.SCULPTURE, ArtType.CRAFTS], [2, 1], 3),
-            ("2 Esculturas + 1 Pintura", [ArtType.SCULPTURE, ArtType.PAINTING], [2, 1], 3),
+            ("2 Crafts + 1 Painting", [ArtType.CRAFTS, ArtType.PAINTING], [2, 1], 3),
+            ("2 Crafts + 1 Sculpture", [ArtType.CRAFTS, ArtType.SCULPTURE], [2, 1], 3),
+            ("2 Paintings + 1 Crafts", [ArtType.PAINTING, ArtType.CRAFTS], [2, 1], 3),
+            ("2 Paintings + 1 Sculpture", [ArtType.PAINTING, ArtType.SCULPTURE], [2, 1], 3),
+            ("2 Sculptures + 1 Crafts", [ArtType.SCULPTURE, ArtType.CRAFTS], [2, 1], 3),
+            ("2 Sculptures + 1 Painting", [ArtType.SCULPTURE, ArtType.PAINTING], [2, 1], 3),
         ]
 
         # Add 3 of each combination
@@ -491,10 +496,10 @@ class ModernismeGame(Game):
                 )
                 cards.append(card)
 
-        # Add 2 reliquia cards
+        # Add 2 relic cards
         for i in range(2):
             card = Card(
-                f"2 Reliquias #{i+1}",
+                f"2 Relics #{i+1}",
                 objective_type="type_count",
                 required_type=ArtType.RELIC,
                 required_count=2,
@@ -513,20 +518,20 @@ class ModernismeGame(Game):
         # Row 2: [5] [6] [7] || [8] [9]
         # Row 3: [10] [11] | [12] [13] [14]
 
-        # Room assignments:
-        # Salón: 0, 1, 2 (3 spaces, top left)
-        # Comedor: 5, 6, 7 (3 spaces, middle left)
-        # Biblioteca: 3, 4, 8, 9 (4 spaces, top/middle right)
-        # Dormitorio: 10, 11 (2 spaces, bottom left)
-        # Vestíbulo: 12, 13, 14 (3 spaces, bottom right/center)
+        # Room assignments (top to bottom, left to right):
+        # Room 1: 0, 1, 2 (3 slots, top left)
+        # Room 2: 3, 4, 8, 9 (4 slots, top/middle right)
+        # Room 3: 5, 6, 7 (3 slots, middle left)
+        # Room 4: 10, 11 (2 slots, bottom left)
+        # Room 5: 12, 13, 14 (3 slots, bottom center/right)
 
         room_layout = [
-            (0, "Salón", 1), (1, "Salón", 2), (2, "Salón", 3),
-            (3, "Biblioteca", 1), (4, "Biblioteca", 2),
-            (5, "Comedor", 1), (6, "Comedor", 2), (7, "Comedor", 3),
-            (8, "Biblioteca", 3), (9, "Biblioteca", 4),
-            (10, "Dormitorio", 1), (11, "Dormitorio", 2),
-            (12, "Vestíbulo", 1), (13, "Vestíbulo", 2), (14, "Vestíbulo", 3)
+            (0, "Room 1 (3 slots)", 1), (1, "Room 1 (3 slots)", 2), (2, "Room 1 (3 slots)", 3),
+            (3, "Room 2 (4 slots)", 1), (4, "Room 2 (4 slots)", 2),
+            (5, "Room 3 (3 slots)", 1), (6, "Room 3 (3 slots)", 2), (7, "Room 3 (3 slots)", 3),
+            (8, "Room 2 (4 slots)", 3), (9, "Room 2 (4 slots)", 4),
+            (10, "Room 4 (2 slots)", 1), (11, "Room 4 (2 slots)", 2),
+            (12, "Room 5 (3 slots)", 1), (13, "Room 5 (3 slots)", 2), (14, "Room 5 (3 slots)", 3)
         ]
 
         # Create slots
@@ -541,11 +546,11 @@ class ModernismeGame(Game):
 
         # Define door adjacencies (spaces connected by doors)
         door_connections = [
-            (0, 5),   # Salón ↔ Comedor
-            (2, 3),   # Salón ↔ Biblioteca
-            (7, 12),  # Comedor ↔ Vestíbulo
-            (11, 12), # Dormitorio ↔ Vestíbulo
-            (8, 13)   # Biblioteca ↔ Vestíbulo
+            (0, 5),   # Room 1 ↔ Room 3
+            (2, 3),   # Room 1 ↔ Room 2
+            (7, 12),  # Room 3 ↔ Room 5
+            (11, 12), # Room 4 ↔ Room 5
+            (8, 13)   # Room 2 ↔ Room 5
         ]
 
         # Set up adjacency lists
@@ -809,9 +814,9 @@ def play_modernisme_game():
         if season < 4:
             game.end_season()
 
-    # Contextualize Reliquias before scoring
+    # Contextualize Relics before scoring
     print("\n" + "=" * 60)
-    print("CONTEXTUALIZANDO RELIQUIAS")
+    print("CONTEXTUALIZING RELICS")
     print("=" * 60)
     for player in game.players:
         player.assign_reliquia_themes(game)
@@ -839,11 +844,11 @@ def play_modernisme_game():
 
         # Room bonuses
         room_configs = {
-            "Dormitorio": 2,
-            "Salón": 3,
-            "Comedor": 3,
-            "Biblioteca": 4,
-            "Vestíbulo": 3
+            "Room 1 (3 slots)": 3,
+            "Room 2 (4 slots)": 4,
+            "Room 3 (3 slots)": 3,
+            "Room 4 (2 slots)": 2,
+            "Room 5 (3 slots)": 3
         }
 
         for room_name, required_works in room_configs.items():
