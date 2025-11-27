@@ -1,8 +1,9 @@
 """
 Run large-scale Modernisme game simulations and analyze results.
 
-This script runs thousands of games, saves logs and data to files,
-then analyzes the results to determine strategy performance.
+This script runs thousands of games in parallel using multiprocessing,
+saves logs and data to files, then analyzes the results to determine
+strategy performance.
 """
 
 import sys
@@ -16,6 +17,8 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 from typing import Dict, List
+from multiprocessing import Pool, cpu_count
+import time
 
 
 def ensure_logs_directory():
@@ -59,32 +62,107 @@ def run_single_simulation(game_num: int, logs_dir: Path) -> str:
     return str(csv_file_path)
 
 
-def run_simulations(num_games: int = 100000):
+def run_simulations(num_games: int = 100000, num_processes: int = None):
     """
-    Run multiple game simulations.
+    Run multiple game simulations using multiprocessing.
 
     Args:
         num_games: Number of games to simulate
+        num_processes: Number of parallel processes (default: CPU count)
     """
+    if num_processes is None:
+        num_processes = cpu_count()
+
     print(f"Starting {num_games:,} game simulations...")
+    print(f"Using {num_processes} parallel processes")
     print(f"Timestamp: {datetime.now()}")
 
     logs_dir = ensure_logs_directory()
     print(f"Saving logs to: {logs_dir}")
 
-    # Run simulations
+    # Prepare arguments for parallel execution
+    start_time = time.time()
+    args = [(i + 1, logs_dir) for i in range(num_games)]
+
+    # Run simulations in parallel with progress tracking
     csv_files = []
-    for i in range(num_games):
-        if (i + 1) % 1000 == 0:
-            print(f"  Progress: {i + 1:,} / {num_games:,} games ({(i + 1) / num_games * 100:.1f}%)")
+    print()  # Newline for progress updates
+    with Pool(processes=num_processes) as pool:
+        # Use imap for progress tracking
+        completed = 0
+        for result in pool.starmap(run_single_simulation, args, chunksize=10):
+            csv_files.append(result)
+            completed += 1
 
-        csv_file = run_single_simulation(i + 1, logs_dir)
-        csv_files.append(csv_file)
+            # Progress updates
+            if completed % 100 == 0 or completed == num_games:
+                elapsed = time.time() - start_time
+                rate = completed / elapsed if elapsed > 0 else 0
+                remaining = (num_games - completed) / rate if rate > 0 else 0
+                print(f"  Progress: {completed:,} / {num_games:,} games "
+                      f"({completed / num_games * 100:.1f}%) - "
+                      f"Rate: {rate:.1f} games/sec - "
+                      f"ETA: {remaining/60:.1f} min")
 
-    print(f"\nCompleted {num_games:,} simulations!")
+    elapsed_time = time.time() - start_time
+    print(f"\nCompleted {num_games:,} simulations in {elapsed_time/60:.1f} minutes!")
+    print(f"Average: {num_games/elapsed_time:.1f} games/second")
     print(f"All logs saved to: {logs_dir}")
 
     return csv_files
+
+
+def aggregate_csvs(logs_dir: Path) -> str:
+    """
+    Aggregate all individual game CSV files into one master CSV.
+
+    Args:
+        logs_dir: Directory containing CSV files
+
+    Returns:
+        Path to the aggregated CSV file
+    """
+    print("\n" + "=" * 70)
+    print("AGGREGATING CSV FILES")
+    print("=" * 70)
+
+    # Find all game CSV files
+    csv_files = sorted(logs_dir.glob("game_*.csv"))
+    print(f"\nFound {len(csv_files):,} game result files")
+
+    if not csv_files:
+        print("No game results found!")
+        return None
+
+    # Load and concatenate all CSVs
+    print("Loading and combining all CSV files...")
+    start_time = time.time()
+
+    df_list = []
+    for i, csv_file in enumerate(csv_files):
+        if (i + 1) % 10000 == 0:
+            print(f"  Loaded {i + 1:,} / {len(csv_files):,} files...")
+        df_list.append(pd.read_csv(csv_file))
+
+    df = pd.concat(df_list, ignore_index=True)
+
+    # Save aggregated CSV
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    aggregated_file = logs_dir / f"all_games_{timestamp}.csv"
+
+    print(f"Saving aggregated CSV with {len(df):,} games...")
+    df.to_csv(aggregated_file, index=False)
+
+    elapsed = time.time() - start_time
+    file_size_mb = aggregated_file.stat().st_size / (1024 * 1024)
+
+    print(f"✓ Aggregated CSV saved: {aggregated_file}")
+    print(f"  - {len(df):,} games")
+    print(f"  - {len(df.columns)} columns")
+    print(f"  - {file_size_mb:.1f} MB")
+    print(f"  - Completed in {elapsed:.1f} seconds")
+
+    return str(aggregated_file)
 
 
 def analyze_results(logs_dir: Path):
@@ -109,11 +187,16 @@ def analyze_results(logs_dir: Path):
     # Load all data into a DataFrame
     print("Loading data...")
     df_list = []
-    for csv_file in csv_files:
-        df_list.append(pd.read_csv(csv_file))
+    batch_size = 10000
+    for i in range(0, len(csv_files), batch_size):
+        batch = csv_files[i:i+batch_size]
+        if (i + len(batch)) % batch_size == 0 or i + len(batch) == len(csv_files):
+            print(f"  Loading batch {i//batch_size + 1}/{(len(csv_files) + batch_size - 1)//batch_size}...")
+        for csv_file in batch:
+            df_list.append(pd.read_csv(csv_file))
 
     df = pd.concat(df_list, ignore_index=True)
-    print(f"Loaded {len(df):,} games")
+    print(f"Loaded {len(df):,} games with {len(df.columns)} columns")
 
     # Strategy win counts
     print("\n" + "=" * 70)
@@ -137,7 +220,7 @@ def analyze_results(logs_dir: Path):
     # Create a mapping of which strategy was in which position for each game
     strategies_by_position = {}
     for pos in range(1, 5):
-        strategy_col = f'player_{pos}_strategy'
+        strategy_col = f'p{pos}_strategy'
 
         # For each game, check if winner_position matches this position
         wins_by_strategy = {}
@@ -194,8 +277,8 @@ def analyze_results(logs_dir: Path):
     # Gather all scores for each strategy
     strategy_scores = {}
     for pos in range(1, 5):
-        strategy_col = f'player_{pos}_strategy'
-        score_col = f'player_{pos}_score'
+        strategy_col = f'p{pos}_strategy'
+        score_col = f'p{pos}_final_score'
 
         for idx, row in df.iterrows():
             strategy = row[strategy_col]
@@ -262,13 +345,22 @@ def main():
     # You can adjust the number of simulations here
     # Start with a smaller number for testing
     num_simulations = 100000
+    num_processes = None  # Default to CPU count
 
     if len(sys.argv) > 1:
         try:
             num_simulations = int(sys.argv[1])
         except ValueError:
             print(f"Invalid number: {sys.argv[1]}")
-            print("Usage: python run_simulations.py [num_games]")
+            print("Usage: python run_simulations.py [num_games] [num_processes]")
+            return
+
+    if len(sys.argv) > 2:
+        try:
+            num_processes = int(sys.argv[2])
+        except ValueError:
+            print(f"Invalid number of processes: {sys.argv[2]}")
+            print("Usage: python run_simulations.py [num_games] [num_processes]")
             return
 
     print("=" * 70)
@@ -277,7 +369,10 @@ def main():
 
     # Run simulations
     logs_dir = ensure_logs_directory()
-    run_simulations(num_simulations)
+    run_simulations(num_simulations, num_processes)
+
+    # Aggregate all CSVs into one
+    aggregate_csvs(logs_dir)
 
     # Analyze results
     analyze_results(logs_dir)

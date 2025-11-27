@@ -46,6 +46,41 @@ class ModernismePlayer(Player):
         self.ai_strategy: Optional[Strategy] = strategy  # AI strategy
         self.reliquia_themes: dict = {}  # Maps reliquia card to assigned theme
 
+        # Turn-by-turn statistics tracking
+        self.turn_stats: List[dict] = []  # Stats for each turn
+        self.current_turn_stats: dict = {}  # Current turn being tracked
+
+    def start_turn(self, season: int, turn_number: int):
+        """Initialize statistics tracking for a new turn."""
+        from collections import defaultdict
+        self.current_turn_stats = {
+            'season': season,
+            'turn': turn_number,
+            'vp_start': self.score,
+            'vp_gained': 0,
+            'cards_played': 0,
+            'cards_discarded': 0,
+            'cards_in_hand_start': len(self.hand.cards),
+            'cards_in_hand_end': 0,
+            'works_by_type': defaultdict(int),
+            'works_by_theme': defaultdict(int),
+            'total_vp_spent': 0,
+            'total_vp_earned_from_plays': 0,
+        }
+
+    def end_turn(self):
+        """Finalize statistics for the current turn."""
+        self.current_turn_stats['vp_end'] = self.score
+        self.current_turn_stats['vp_gained'] = self.score - self.current_turn_stats['vp_start']
+        self.current_turn_stats['cards_in_hand_end'] = len(self.hand.cards)
+
+        # Convert defaultdicts to regular dicts for serialization
+        self.current_turn_stats['works_by_type'] = dict(self.current_turn_stats['works_by_type'])
+        self.current_turn_stats['works_by_theme'] = dict(self.current_turn_stats['works_by_theme'])
+
+        self.turn_stats.append(self.current_turn_stats.copy())
+        self.current_turn_stats = {}
+
     def strategy(self, game: 'ModernismeGame') -> None:
         """
         AI strategy for Modernisme.
@@ -151,6 +186,10 @@ class ModernismePlayer(Player):
                 self.discard_pile.append(card)
                 self.pool += card.get_property("vp", 0)
 
+                # Track discarded cards
+                if self.current_turn_stats:
+                    self.current_turn_stats['cards_discarded'] += 1
+
         # Now we should have enough VP in the pool
         if self.pool < work_vp:
             return False
@@ -187,6 +226,22 @@ class ModernismePlayer(Player):
 
                     vp_gain = base_vp + bonus_vp
                     self.add_score(vp_gain)
+
+                    # Track statistics
+                    if self.current_turn_stats:
+                        self.current_turn_stats['cards_played'] += 1
+                        self.current_turn_stats['total_vp_spent'] += work_vp
+                        self.current_turn_stats['total_vp_earned_from_plays'] += vp_gain
+
+                        # Track by type
+                        art_type = work.get_property("art_type")
+                        type_key = art_type.value if hasattr(art_type, 'value') else str(art_type)
+                        self.current_turn_stats['works_by_type'][type_key] += 1
+
+                        # Track by theme
+                        theme = work.get_property("theme")
+                        theme_key = theme.value if hasattr(theme, 'value') else str(theme)
+                        self.current_turn_stats['works_by_theme'][theme_key] += 1
 
                     # Detailed logging
                     room_name = slot.get_property("room")
@@ -314,24 +369,67 @@ class ModernismeGame(Game):
         Get structured game data for CSV export.
 
         Returns:
-            Dictionary containing game results and player statistics
+            Dictionary containing game results and comprehensive player statistics
         """
         data = {
+            'game_id': id(self),
             'moda_tema': self.moda_tema.name if self.moda_tema else '',
             'moda_conjunto': self.moda_conjunto.name if self.moda_conjunto else '',
         }
 
-        # Add player data
+        # Add comprehensive player data
         for i, player in enumerate(self.players):
             position = i + 1  # 1-indexed position
             board = self.get_board(f"{player.name}_board")
             total_works = sum(1 for slot in board.slots if not slot.is_empty()) if board else 0
 
-            data[f'player_{position}_name'] = player.name
-            data[f'player_{position}_strategy'] = player.ai_strategy.name if player.ai_strategy else 'None'
-            data[f'player_{position}_score'] = player.score
-            data[f'player_{position}_works'] = total_works
-            data[f'player_{position}_commission'] = player.commission_card.name if player.commission_card else ''
+            # Basic player info
+            data[f'p{position}_name'] = player.name
+            data[f'p{position}_strategy'] = player.ai_strategy.name if player.ai_strategy else 'None'
+            data[f'p{position}_final_score'] = player.score
+            data[f'p{position}_total_works'] = total_works
+            data[f'p{position}_commission'] = player.commission_card.name if player.commission_card else ''
+
+            # Aggregate statistics across all turns
+            total_cards_played = sum(turn.get('cards_played', 0) for turn in player.turn_stats)
+            total_cards_discarded = sum(turn.get('cards_discarded', 0) for turn in player.turn_stats)
+            total_vp_earned = sum(turn.get('total_vp_earned_from_plays', 0) for turn in player.turn_stats)
+            total_vp_spent = sum(turn.get('total_vp_spent', 0) for turn in player.turn_stats)
+
+            data[f'p{position}_total_cards_played'] = total_cards_played
+            data[f'p{position}_total_cards_discarded'] = total_cards_discarded
+            data[f'p{position}_total_vp_earned'] = total_vp_earned
+            data[f'p{position}_total_vp_spent'] = total_vp_spent
+
+            # Aggregate works by type
+            works_by_type = {}
+            for turn in player.turn_stats:
+                for art_type, count in turn.get('works_by_type', {}).items():
+                    works_by_type[art_type] = works_by_type.get(art_type, 0) + count
+
+            for art_type in ['Crafts', 'Painting', 'Sculpture', 'Relic']:
+                data[f'p{position}_works_{art_type.lower()}'] = works_by_type.get(art_type, 0)
+
+            # Aggregate works by theme
+            works_by_theme = {}
+            for turn in player.turn_stats:
+                for theme, count in turn.get('works_by_theme', {}).items():
+                    works_by_theme[theme] = works_by_theme.get(theme, 0) + count
+
+            for theme in ['Nature', 'Mythology', 'Society', 'Orientalism', 'No theme']:
+                theme_key = theme.lower().replace(' ', '_')
+                data[f'p{position}_works_{theme_key}'] = works_by_theme.get(theme, 0)
+
+            # Turn-by-turn data (16 turns total: 4 players x 4 seasons)
+            for turn_idx, turn_stat in enumerate(player.turn_stats, 1):
+                data[f'p{position}_t{turn_idx}_season'] = turn_stat.get('season', 0)
+                data[f'p{position}_t{turn_idx}_vp_start'] = turn_stat.get('vp_start', 0)
+                data[f'p{position}_t{turn_idx}_vp_gained'] = turn_stat.get('vp_gained', 0)
+                data[f'p{position}_t{turn_idx}_vp_end'] = turn_stat.get('vp_end', 0)
+                data[f'p{position}_t{turn_idx}_cards_played'] = turn_stat.get('cards_played', 0)
+                data[f'p{position}_t{turn_idx}_cards_discarded'] = turn_stat.get('cards_discarded', 0)
+                data[f'p{position}_t{turn_idx}_vp_spent'] = turn_stat.get('total_vp_spent', 0)
+                data[f'p{position}_t{turn_idx}_vp_earned'] = turn_stat.get('total_vp_earned_from_plays', 0)
 
         # Determine winner
         winner = max(self.players, key=lambda p: (p.score, -sum(1 for slot in self.get_board(f"{p.name}_board").slots if not slot.is_empty())))
@@ -345,6 +443,7 @@ class ModernismeGame(Game):
         data['max_score'] = max(scores)
         data['min_score'] = min(scores)
         data['score_difference'] = max(scores) - min(scores)
+        data['avg_score'] = sum(scores) / len(scores)
 
         return data
 
@@ -846,6 +945,7 @@ def play_modernisme_game(log_file: Optional[TextIO] = None, num_players: int = 4
     game.setup_game(num_players=num_players)
 
     # Play 4 seasons
+    turn_counter = 0
     for season in range(1, 5):
         game.log(f"\n{'='*60}")
         game.log(f"SEASON {season}")
@@ -856,6 +956,9 @@ def play_modernisme_game(log_file: Optional[TextIO] = None, num_players: int = 4
         for offset in range(len(game.players)):
             player_idx = (game.first_player_idx + offset) % len(game.players)
             player = game.players[player_idx]
+
+            turn_counter += 1
+            player.start_turn(season, turn_counter)
 
             game.log(f"\n--- {player.name}'s Turn ---")
 
@@ -881,6 +984,8 @@ def play_modernisme_game(log_file: Optional[TextIO] = None, num_players: int = 4
             else:
                 game.log(f"  (empty)")
             game.log(f"Score: {player.score} VP")
+
+            player.end_turn()
 
         # End of season
         if season < 4:
