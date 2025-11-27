@@ -10,6 +10,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from pytts import Game, Player, Card, Deck, Board, Slot, Hand, DiscardPile
+from pytts.strategy import Strategy, get_random_strategy
 import random
 from typing import List, Optional, Tuple
 from enum import Enum
@@ -35,41 +36,48 @@ class Theme(Enum):
 class ModernismePlayer(Player):
     """Player in Modernisme game."""
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, strategy: Optional[Strategy] = None):
         super().__init__(name, hand_max_size=None)  # No hand limit
         self.active_artists: List[Card] = []  # 2 active artist cards
         self.discard_pile: List[Card] = []  # Player's work card discards
         self.commission_card: Optional[Card] = None  # Secret objective
         self.completed_rooms: List[int] = []  # Track which rooms are complete
+        self.ai_strategy: Optional[Strategy] = strategy  # AI strategy
 
     def strategy(self, game: 'ModernismeGame') -> None:
         """
         AI strategy for Modernisme.
 
-        Simple strategy:
-        1. Commission works that match active artists
-        2. Try to complete rooms with same theme or type
-        3. Focus on higher VP works
+        Uses the assigned AI strategy to select which works to commission.
+        Commissions 1-2 works per turn based on strategy recommendations.
         """
-        # Simple AI: commission 1-2 works per turn
+        # Commission 1-2 works per turn
         works_to_commission = min(2, len(self.hand.cards))
 
         for _ in range(works_to_commission):
             if not self.hand.cards:
                 break
 
-            # Find a work we can commission
-            for work in self.hand.cards[:]:
-                work_type = work.get_property("art_type")
+            # Use AI strategy to select a work
+            if self.ai_strategy:
+                work = self.ai_strategy.select_work(self, game)
+            else:
+                # Fallback: select first commissionable work
+                work = None
+                for w in self.hand.cards:
+                    work_type = w.get_property("art_type")
+                    can_commission = any(
+                        artist.get_property("art_type") == work_type
+                        for artist in self.active_artists
+                    )
+                    if can_commission:
+                        work = w
+                        break
 
-                # Check if we have an artist for this work type
-                can_commission = any(
-                    artist.get_property("art_type") == work_type
-                    for artist in self.active_artists
-                )
-
-                if can_commission and self._try_commission_work(work, game):
-                    break
+            if work and self._try_commission_work(work, game):
+                continue  # Successfully commissioned
+            else:
+                break  # Can't commission anymore
 
     def _try_commission_work(self, work: Card, game: 'ModernismeGame') -> bool:
         """Try to commission a specific work, minimizing overspending."""
@@ -190,11 +198,14 @@ class ModernismeGame(Game):
 
     def setup_game(self, num_players: int = 2):
         """Set up a game of Modernisme."""
-        # Create players
+        # Create players with random strategies
+        print("\nPlayer Strategies:")
         player_names = ["Alice", "Bob", "Carol", "David"]
         for i in range(num_players):
-            player = ModernismePlayer(player_names[i])
+            strategy = get_random_strategy()
+            player = ModernismePlayer(player_names[i], strategy=strategy)
             self.add_player(player)
+            print(f"  {player_names[i]}: {strategy.name}")
 
         # Select moda cards (public objectives)
         moda_tema_cards = self._create_moda_tema_cards()
