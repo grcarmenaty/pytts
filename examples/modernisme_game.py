@@ -359,44 +359,45 @@ class ModernismeGame(Game):
         return cards
 
     def _create_encargo_cards(self) -> List[Card]:
-        """Create commission cards (secret objectives)."""
+        """
+        Create commission cards (secret objectives).
+
+        20 total encargo cards:
+        - 6 types of combinations (2 of one type + 1 of another), 3 cards each = 18 cards
+        - 1 type of reliquia combination (2 reliquias), 2 cards = 2 cards
+        """
         cards = []
-        # Type-based objectives (3 cards)
-        for art_type in [ArtType.CRAFTS, ArtType.PAINTING, ArtType.SCULPTURE]:
-            card = Card(
-                f"3 {art_type.value} works",
-                objective_type="type_count",
-                required_type=art_type,
-                required_count=3,
-                vp=3
-            )
-            cards.append(card)
 
-        # Theme-based objectives (4 cards)
-        for theme in [Theme.NATURE, Theme.MYTHOLOGY, Theme.SOCIETY, Theme.ORIENTALISM]:
-            card = Card(
-                f"4 {theme.value} works",
-                objective_type="theme_count",
-                required_theme=theme,
-                required_count=4,
-                vp=3
-            )
-            cards.append(card)
-
-        # Mixed objectives (3 cards to total 10 encargo cards)
-        mixed_objectives = [
-            ("2 Reliquias + 2 Esculturas", [ArtType.RELIC, ArtType.SCULPTURE], [2, 2], 3),
-            ("2 Reliquias + 2 Pinturas", [ArtType.RELIC, ArtType.PAINTING], [2, 2], 3),
-            ("2 Artesanías + 2 Pinturas", [ArtType.CRAFTS, ArtType.PAINTING], [2, 2], 3),
+        # All combinations of 2 and 1 of artesanía, pintura, escultura (3 of each)
+        combinations = [
+            ("2 Artesanías + 1 Pintura", [ArtType.CRAFTS, ArtType.PAINTING], [2, 1], 3),
+            ("2 Artesanías + 1 Escultura", [ArtType.CRAFTS, ArtType.SCULPTURE], [2, 1], 3),
+            ("2 Pinturas + 1 Artesanía", [ArtType.PAINTING, ArtType.CRAFTS], [2, 1], 3),
+            ("2 Pinturas + 1 Escultura", [ArtType.PAINTING, ArtType.SCULPTURE], [2, 1], 3),
+            ("2 Esculturas + 1 Artesanía", [ArtType.SCULPTURE, ArtType.CRAFTS], [2, 1], 3),
+            ("2 Esculturas + 1 Pintura", [ArtType.SCULPTURE, ArtType.PAINTING], [2, 1], 3),
         ]
 
-        for name, req_types, req_counts, vp in mixed_objectives:
+        # Add 3 of each combination
+        for name, req_types, req_counts, vp in combinations:
+            for i in range(3):
+                card = Card(
+                    f"{name} #{i+1}",
+                    objective_type="mixed",
+                    required_types=req_types,
+                    required_counts=req_counts,
+                    vp=vp
+                )
+                cards.append(card)
+
+        # Add 2 reliquia cards
+        for i in range(2):
             card = Card(
-                name,
-                objective_type="mixed",
-                required_types=req_types,
-                required_counts=req_counts,
-                vp=vp
+                f"2 Reliquias #{i+1}",
+                objective_type="type_count",
+                required_type=ArtType.RELIC,
+                required_count=2,
+                vp=3
             )
             cards.append(card)
 

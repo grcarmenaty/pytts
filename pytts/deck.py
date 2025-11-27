@@ -1,6 +1,7 @@
 """Deck classes for managing card collections."""
 
 import random
+import csv
 from typing import List, Optional
 from .card import Card
 from .hand import Hand
@@ -94,6 +95,49 @@ class Deck:
     def is_visible_to_all(self) -> bool:
         """Check if all cards in this deck are visible to all players."""
         return self._visible_to_all
+
+    def save_to_csv(self, filename: str) -> None:
+        """
+        Save the deck to a CSV file.
+
+        Args:
+            filename: Path to the CSV file to create
+        """
+        if not self.cards:
+            # Create empty CSV with header
+            with open(filename, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['card_name'])
+            return
+
+        # Get all unique property keys from all cards
+        all_properties = set()
+        for card in self.cards:
+            all_properties.update(card.properties.keys())
+
+        # Sort properties for consistent column order
+        property_keys = sorted(all_properties)
+
+        # Create header
+        header = ['card_name'] + property_keys
+
+        # Write CSV
+        with open(filename, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(header)
+
+            for card in self.cards:
+                row = [card.name]
+                for key in property_keys:
+                    value = card.get_property(key)
+                    # Convert enum values to their string representation
+                    if hasattr(value, 'value'):
+                        value = value.value
+                    elif isinstance(value, list):
+                        # Convert lists to comma-separated strings
+                        value = ','.join(str(v.value if hasattr(v, 'value') else v) for v in value)
+                    row.append(value)
+                writer.writerow(row)
 
     def __len__(self) -> int:
         return len(self.cards)

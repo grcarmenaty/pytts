@@ -1,0 +1,5 @@
+card_name,objective_type,required_themes,vp
+Green-Blue-Yellow adjacents,adjacent_set,"Naturaleza,Mitología,Costumbrismo",3
+Green-Blue-Red adjacents,adjacent_set,"Naturaleza,Mitología,Orientalismo",3
+Green-Yellow-Red adjacents,adjacent_set,"Naturaleza,Costumbrismo,Orientalismo",3
+Blue-Yellow-Red adjacents,adjacent_set,"Mitología,Costumbrismo,Orientalismo",3
