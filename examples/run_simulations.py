@@ -11,6 +11,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from modernisme_game import play_modernisme_game
+from generate_report import generate_pdf_report
 import csv
 from datetime import datetime
 from pathlib import Path
@@ -372,10 +373,27 @@ def main():
     run_simulations(num_simulations, num_processes)
 
     # Aggregate all CSVs into one
-    aggregate_csvs(logs_dir)
+    aggregated_csv = aggregate_csvs(logs_dir)
 
     # Analyze results
     analyze_results(logs_dir)
+
+    # Generate PDF report
+    if aggregated_csv:
+        print("\n" + "=" * 70)
+        print("GENERATING PDF REPORT")
+        print("=" * 70)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        pdf_path = logs_dir / f"simulation_report_{timestamp}.pdf"
+
+        try:
+            generate_pdf_report(aggregated_csv, str(pdf_path))
+            print(f"\n✓ PDF report generated successfully!")
+            print(f"  Location: {pdf_path}")
+        except Exception as e:
+            print(f"\n✗ Error generating PDF report: {e}")
+            print("  (Analysis results are still available in text format)")
 
     print("\n" + "=" * 70)
     print("SIMULATION COMPLETE")
