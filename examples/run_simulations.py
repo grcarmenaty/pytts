@@ -140,10 +140,26 @@ def aggregate_csvs(logs_dir: Path) -> str:
     start_time = time.time()
 
     df_list = []
+    skipped = 0
     for i, csv_file in enumerate(csv_files):
         if (i + 1) % 10000 == 0:
             print(f"  Loaded {i + 1:,} / {len(csv_files):,} files...")
-        df_list.append(pd.read_csv(csv_file))
+        try:
+            df = pd.read_csv(csv_file)
+            if not df.empty:
+                df_list.append(df)
+            else:
+                skipped += 1
+        except (pd.errors.EmptyDataError, pd.errors.ParserError) as e:
+            skipped += 1
+            continue
+
+    if skipped > 0:
+        print(f"  Skipped {skipped:,} empty or corrupted CSV files")
+
+    if not df_list:
+        print("ERROR: No valid CSV files found after filtering!")
+        return None
 
     df = pd.concat(df_list, ignore_index=True)
 
