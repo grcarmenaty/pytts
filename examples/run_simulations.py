@@ -133,10 +133,15 @@ def run_simulations(num_games: int = 100000, num_processes: int = None):
     # Run simulations in parallel with tqdm progress bar
     csv_files = []
     print()  # Newline before progress bar
+
+    # Wrapper function for imap_unordered (which needs single-arg function)
+    def run_simulation_wrapper(args_tuple):
+        return run_single_simulation(*args_tuple)
+
     with Pool(processes=num_processes) as pool:
         with tqdm(total=actual_num_games, desc="Running simulations",
                   unit="game", ncols=100, bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]') as pbar:
-            for result in pool.starmap(run_single_simulation, args, chunksize=10):
+            for result in pool.imap_unordered(run_simulation_wrapper, args, chunksize=1):
                 csv_files.append(result)
                 pbar.update(1)
 
