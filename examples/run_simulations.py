@@ -12,13 +12,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from modernisme_game import play_modernisme_game
 from generate_report import generate_pdf_report
+from pytts.strategy import ALL_STRATEGIES
 import csv
 from datetime import datetime
 from pathlib import Path
 import pandas as pd
 import numpy as np
-from typing import Dict, List
+from typing import Dict, List, Tuple
 from multiprocessing import Pool, cpu_count
+from itertools import product
 import time
 
 
@@ -29,13 +31,14 @@ def ensure_logs_directory():
     return logs_dir
 
 
-def run_single_simulation(game_num: int, logs_dir: Path) -> str:
+def run_single_simulation(game_num: int, logs_dir: Path, strategy_classes: Tuple = None) -> str:
     """
     Run a single game and save logs and data.
 
     Args:
         game_num: The game number (for unique naming)
         logs_dir: Directory to save logs
+        strategy_classes: Tuple of strategy classes for each player
 
     Returns:
         Path to the CSV file created
@@ -49,7 +52,8 @@ def run_single_simulation(game_num: int, logs_dir: Path) -> str:
 
     # Run game with log file
     with open(log_file_path, 'w') as log_file:
-        game = play_modernisme_game(log_file=log_file, num_players=4)
+        game = play_modernisme_game(log_file=log_file, num_players=4,
+                                    strategy_classes=list(strategy_classes) if strategy_classes else None)
 
     # Save game data to CSV
     game_data = game.get_game_data()
@@ -63,18 +67,46 @@ def run_single_simulation(game_num: int, logs_dir: Path) -> str:
     return str(csv_file_path)
 
 
-def run_simulations(num_games: int = 100000, num_processes: int = None):
+def generate_strategy_combinations(num_players: int = 4) -> List[Tuple]:
     """
-    Run multiple game simulations using multiprocessing.
+    Generate all possible strategy combinations for the given number of players.
 
     Args:
-        num_games: Number of games to simulate
+        num_players: Number of players in each game
+
+    Returns:
+        List of tuples, where each tuple contains strategy classes for one combination
+    """
+    # Generate all possible combinations of strategies
+    # With 7 strategies and 4 players, this gives 7^4 = 2,401 combinations
+    combinations = list(product(ALL_STRATEGIES, repeat=num_players))
+    return combinations
+
+
+def run_simulations(num_games: int = 100000, num_processes: int = None):
+    """
+    Run multiple game simulations using multiprocessing with balanced strategy combinations.
+
+    Each possible combination of strategies is run an equal number of times.
+
+    Args:
+        num_games: Target number of games to simulate (will be adjusted to ensure even distribution)
         num_processes: Number of parallel processes (default: CPU count)
     """
     if num_processes is None:
         num_processes = cpu_count()
 
-    print(f"Starting {num_games:,} game simulations...")
+    # Generate all strategy combinations
+    strategy_combinations = generate_strategy_combinations(num_players=4)
+    num_combinations = len(strategy_combinations)
+
+    # Calculate games per combination to reach or exceed target
+    games_per_combination = max(1, (num_games + num_combinations - 1) // num_combinations)
+    actual_num_games = games_per_combination * num_combinations
+
+    print(f"Starting balanced simulation with {actual_num_games:,} games...")
+    print(f"  - {num_combinations:,} unique strategy combinations")
+    print(f"  - {games_per_combination:,} games per combination")
     print(f"Using {num_processes} parallel processes")
     print(f"Timestamp: {datetime.now()}")
 
@@ -82,8 +114,14 @@ def run_simulations(num_games: int = 100000, num_processes: int = None):
     print(f"Saving logs to: {logs_dir}")
 
     # Prepare arguments for parallel execution
+    # Each combination is run games_per_combination times
     start_time = time.time()
-    args = [(i + 1, logs_dir) for i in range(num_games)]
+    args = []
+    game_num = 1
+    for _ in range(games_per_combination):
+        for strategy_combo in strategy_combinations:
+            args.append((game_num, logs_dir, strategy_combo))
+            game_num += 1
 
     # Run simulations in parallel with progress tracking
     csv_files = []
@@ -96,18 +134,18 @@ def run_simulations(num_games: int = 100000, num_processes: int = None):
             completed += 1
 
             # Progress updates
-            if completed % 100 == 0 or completed == num_games:
+            if completed % 100 == 0 or completed == actual_num_games:
                 elapsed = time.time() - start_time
                 rate = completed / elapsed if elapsed > 0 else 0
-                remaining = (num_games - completed) / rate if rate > 0 else 0
-                print(f"  Progress: {completed:,} / {num_games:,} games "
-                      f"({completed / num_games * 100:.1f}%) - "
+                remaining = (actual_num_games - completed) / rate if rate > 0 else 0
+                print(f"  Progress: {completed:,} / {actual_num_games:,} games "
+                      f"({completed / actual_num_games * 100:.1f}%) - "
                       f"Rate: {rate:.1f} games/sec - "
                       f"ETA: {remaining/60:.1f} min")
 
     elapsed_time = time.time() - start_time
-    print(f"\nCompleted {num_games:,} simulations in {elapsed_time/60:.1f} minutes!")
-    print(f"Average: {num_games/elapsed_time:.1f} games/second")
+    print(f"\nCompleted {actual_num_games:,} simulations in {elapsed_time/60:.1f} minutes!")
+    print(f"Average: {actual_num_games/elapsed_time:.1f} games/second")
     print(f"All logs saved to: {logs_dir}")
 
     return csv_files
@@ -204,13 +242,25 @@ def analyze_results(logs_dir: Path):
     # Load all data into a DataFrame
     print("Loading data...")
     df_list = []
+    skipped = 0
     batch_size = 10000
     for i in range(0, len(csv_files), batch_size):
         batch = csv_files[i:i+batch_size]
         if (i + len(batch)) % batch_size == 0 or i + len(batch) == len(csv_files):
             print(f"  Loading batch {i//batch_size + 1}/{(len(csv_files) + batch_size - 1)//batch_size}...")
         for csv_file in batch:
-            df_list.append(pd.read_csv(csv_file))
+            try:
+                df = pd.read_csv(csv_file)
+                if not df.empty:
+                    df_list.append(df)
+                else:
+                    skipped += 1
+            except (pd.errors.EmptyDataError, pd.errors.ParserError):
+                skipped += 1
+                continue
+
+    if skipped > 0:
+        print(f"  Skipped {skipped:,} empty or corrupted CSV files")
 
     df = pd.concat(df_list, ignore_index=True)
     print(f"Loaded {len(df):,} games with {len(df.columns)} columns")
@@ -337,6 +387,143 @@ def analyze_results(logs_dir: Path):
             count = ((df['score_difference'] >= diff_bins[i]) & (df['score_difference'] < diff_bins[i + 1])).sum()
             pct = count / len(df) * 100
             print(f"  {diff_labels[i]:>8}: {count:>8,} games ({pct:>5.2f}%)")
+
+    # Strategy usage frequency
+    print("\n" + "=" * 70)
+    print("STRATEGY USAGE FREQUENCY")
+    print("=" * 70)
+
+    strategy_usage = {}
+    strategy_position_usage = {pos: {} for pos in range(1, 5)}
+
+    for pos in range(1, 5):
+        strategy_col = f'p{pos}_strategy'
+        for strategy in df[strategy_col]:
+            # Overall count
+            if strategy not in strategy_usage:
+                strategy_usage[strategy] = 0
+            strategy_usage[strategy] += 1
+
+            # Position-specific count
+            if strategy not in strategy_position_usage[pos]:
+                strategy_position_usage[pos][strategy] = 0
+            strategy_position_usage[pos][strategy] += 1
+
+    total_plays = sum(strategy_usage.values())
+    print(f"\n{'Strategy':<30} {'Total Plays':>12} {'% of Games':>12} {'Pos 1':>8} {'Pos 2':>8} {'Pos 3':>8} {'Pos 4':>8}")
+    print("-" * 110)
+
+    for strategy in sorted(strategy_usage.keys()):
+        count = strategy_usage[strategy]
+        pct = count / total_plays * 100
+        pos_counts = [strategy_position_usage[pos].get(strategy, 0) for pos in range(1, 5)]
+        print(f"{strategy:<30} {count:>12,} {pct:>11.2f}% {pos_counts[0]:>8,} {pos_counts[1]:>8,} {pos_counts[2]:>8,} {pos_counts[3]:>8,}")
+
+    # Head-to-head matchup analysis
+    print("\n" + "=" * 70)
+    print("HEAD-TO-HEAD WIN RATES")
+    print("=" * 70)
+    print("\nWhen Strategy A plays in ANY position against Strategy B in ANY position,")
+    print("what is Strategy A's win rate?")
+
+    # Build head-to-head matrix
+    all_strat_names = sorted(strategy_usage.keys())
+    h2h_matrix = {s1: {s2: {'wins': 0, 'games': 0} for s2 in all_strat_names} for s1 in all_strat_names}
+
+    # For each game, record all head-to-head matchups
+    for idx, row in df.iterrows():
+        winner_strategy = row['winner_strategy']
+        winner_pos = row['winner_position']
+
+        # Get all strategies in this game
+        strategies = [row[f'p{pos}_strategy'] for pos in range(1, 5)]
+
+        # Record win for winner against all opponents
+        for pos in range(1, 5):
+            if pos != winner_pos:
+                opponent = strategies[pos - 1]
+                h2h_matrix[winner_strategy][opponent]['wins'] += 1
+                h2h_matrix[winner_strategy][opponent]['games'] += 1
+                # Also record loss for opponent
+                h2h_matrix[opponent][winner_strategy]['games'] += 1
+
+    # Display matrix
+    print(f"\n{'Strategy':<25}", end='')
+    for s in all_strat_names:
+        print(f" {s[:10]:>10}", end='')
+    print()
+    print("-" * (25 + 11 * len(all_strat_names)))
+
+    for s1 in all_strat_names:
+        print(f"{s1:<25}", end='')
+        for s2 in all_strat_names:
+            if s1 == s2:
+                print(f" {'--':>10}", end='')
+            else:
+                games = h2h_matrix[s1][s2]['games']
+                if games > 0:
+                    wins = h2h_matrix[s1][s2]['wins']
+                    win_rate = wins / games * 100
+                    print(f" {win_rate:>9.1f}%", end='')
+                else:
+                    print(f" {'0.0%':>10}", end='')
+        print()
+
+    # Matchup performance by opponent combination
+    print("\n" + "=" * 70)
+    print("MATCHUP PERFORMANCE MATRIX")
+    print("=" * 70)
+    print("\nFor each strategy, showing performance against different opponent combinations:")
+    print("(Top 10 best and worst matchups for each strategy)")
+
+    matchup_performance = {}
+
+    for idx, row in df.iterrows():
+        winner_strategy = row['winner_strategy']
+        winner_pos = row['winner_position']
+
+        # Get all strategies in this game
+        strategies = tuple(row[f'p{pos}_strategy'] for pos in range(1, 5))
+
+        # Record performance for each strategy in this game
+        for pos in range(1, 5):
+            strategy = strategies[pos - 1]
+            # Get opponents (all strategies except current position)
+            opponents = tuple(strategies[i] for i in range(4) if i != pos - 1)
+
+            if strategy not in matchup_performance:
+                matchup_performance[strategy] = {}
+            if opponents not in matchup_performance[strategy]:
+                matchup_performance[strategy][opponents] = {'wins': 0, 'games': 0}
+
+            matchup_performance[strategy][opponents]['games'] += 1
+            if pos == winner_pos:
+                matchup_performance[strategy][opponents]['wins'] += 1
+
+    # Display top/bottom matchups for each strategy
+    for strategy in sorted(matchup_performance.keys()):
+        matchups = matchup_performance[strategy]
+
+        # Calculate win rates
+        matchup_winrates = []
+        for opponents, stats in matchups.items():
+            if stats['games'] >= 1:  # At least 1 game for balanced simulations
+                win_rate = stats['wins'] / stats['games'] * 100
+                matchup_winrates.append((opponents, stats['wins'], stats['games'], win_rate))
+
+        # Sort by win rate
+        matchup_winrates.sort(key=lambda x: x[3], reverse=True)
+
+        print(f"\n{strategy}:")
+        print(f"  Best matchups:")
+        for opponents, wins, games, win_rate in matchup_winrates[:5]:
+            opp_str = ' / '.join([o[:15] for o in opponents])
+            print(f"    vs [{opp_str}]: {wins}/{games} ({win_rate:.1f}%)")
+
+        print(f"  Worst matchups:")
+        for opponents, wins, games, win_rate in matchup_winrates[-5:]:
+            opp_str = ' / '.join([o[:15] for o in opponents])
+            print(f"    vs [{opp_str}]: {wins}/{games} ({win_rate:.1f}%)")
 
     # Save summary statistics
     summary_file = logs_dir / "simulation_summary.txt"

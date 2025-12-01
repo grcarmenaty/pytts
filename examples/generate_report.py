@@ -93,6 +93,9 @@ class SimulationReport:
         self._add_title_page()
         self._add_executive_summary()
         self._add_strategy_analysis()
+        self._add_strategy_usage()
+        self._add_head_to_head_analysis()
+        self._add_matchup_analysis()
         self._add_position_analysis()
         self._add_vp_analysis()
         self._add_score_difference_analysis()
@@ -496,6 +499,234 @@ class SimulationReport:
             self.styles['BodyText']
         )
         self.story.append(final)
+
+    def _add_strategy_usage(self):
+        """Add strategy usage frequency section."""
+        self.story.append(PageBreak())
+
+        title = Paragraph("Strategy Usage Frequency", self.styles['CustomHeading'])
+        self.story.append(title)
+        self.story.append(Spacer(1, 0.2*inch))
+
+        intro = Paragraph(
+            "This section shows how frequently each strategy was used across all games and positions.",
+            self.styles['BodyText']
+        )
+        self.story.append(intro)
+        self.story.append(Spacer(1, 0.2*inch))
+
+        # Calculate strategy usage
+        strategy_usage = {}
+        strategy_position_usage = {pos: {} for pos in range(1, 5)}
+
+        for pos in range(1, 5):
+            strategy_col = f'p{pos}_strategy'
+            for strategy in self.df[strategy_col]:
+                if strategy not in strategy_usage:
+                    strategy_usage[strategy] = 0
+                strategy_usage[strategy] += 1
+
+                if strategy not in strategy_position_usage[pos]:
+                    strategy_position_usage[pos][strategy] = 0
+                strategy_position_usage[pos][strategy] += 1
+
+        total_plays = sum(strategy_usage.values())
+
+        # Create table
+        table_data = [['Strategy', 'Total Plays', '% of Games', 'Pos 1', 'Pos 2', 'Pos 3', 'Pos 4']]
+
+        for strategy in sorted(strategy_usage.keys()):
+            count = strategy_usage[strategy]
+            pct = count / total_plays * 100
+            pos_counts = [str(strategy_position_usage[pos].get(strategy, 0)) for pos in range(1, 5)]
+            table_data.append([
+                strategy,
+                f"{count:,}",
+                f"{pct:.1f}%",
+                pos_counts[0],
+                pos_counts[1],
+                pos_counts[2],
+                pos_counts[3]
+            ])
+
+        table = Table(table_data, colWidths=[2*inch, 0.9*inch, 0.9*inch, 0.6*inch, 0.6*inch, 0.6*inch, 0.6*inch])
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4788')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
+        ]))
+
+        self.story.append(table)
+        self.story.append(Spacer(1, 0.2*inch))
+
+        note = Paragraph(
+            "<i>Note: In balanced simulations, each strategy appears equally across all positions.</i>",
+            self.styles['BodyText']
+        )
+        self.story.append(note)
+
+    def _add_head_to_head_analysis(self):
+        """Add head-to-head win rate matrix."""
+        self.story.append(PageBreak())
+
+        title = Paragraph("Head-to-Head Win Rates", self.styles['CustomHeading'])
+        self.story.append(title)
+        self.story.append(Spacer(1, 0.2*inch))
+
+        intro = Paragraph(
+            "This matrix shows win rates when Strategy A (row) plays against Strategy B (column) "
+            "in any position. Values represent the percentage of games won by the row strategy.",
+            self.styles['BodyText']
+        )
+        self.story.append(intro)
+        self.story.append(Spacer(1, 0.3*inch))
+
+        # Build head-to-head matrix
+        strategy_usage = {}
+        for pos in range(1, 5):
+            for strategy in self.df[f'p{pos}_strategy']:
+                strategy_usage[strategy] = True
+
+        all_strat_names = sorted(strategy_usage.keys())
+        h2h_matrix = {s1: {s2: {'wins': 0, 'games': 0} for s2 in all_strat_names} for s1 in all_strat_names}
+
+        # Calculate head-to-head stats
+        for idx, row in self.df.iterrows():
+            winner_strategy = row['winner_strategy']
+            winner_pos = row['winner_position']
+            strategies = [row[f'p{pos}_strategy'] for pos in range(1, 5)]
+
+            for pos in range(1, 5):
+                if pos != winner_pos:
+                    opponent = strategies[pos - 1]
+                    h2h_matrix[winner_strategy][opponent]['wins'] += 1
+                    h2h_matrix[winner_strategy][opponent]['games'] += 1
+                    h2h_matrix[opponent][winner_strategy]['games'] += 1
+
+        # Create heatmap
+        matrix_data = []
+        for s1 in all_strat_names:
+            row_data = []
+            for s2 in all_strat_names:
+                if s1 == s2:
+                    row_data.append(None)
+                else:
+                    games = h2h_matrix[s1][s2]['games']
+                    if games > 0:
+                        wins = h2h_matrix[s1][s2]['wins']
+                        win_rate = wins / games * 100
+                        row_data.append(win_rate)
+                    else:
+                        row_data.append(0)
+            matrix_data.append(row_data)
+
+        # Create visualization
+        fig, ax = plt.subplots(figsize=(10, 8))
+        im = ax.imshow([[v if v is not None else np.nan for v in row] for row in matrix_data],
+                       cmap='RdYlGn', aspect='auto', vmin=0, vmax=100)
+
+        # Labels
+        ax.set_xticks(np.arange(len(all_strat_names)))
+        ax.set_yticks(np.arange(len(all_strat_names)))
+        ax.set_xticklabels([s[:10] for s in all_strat_names], rotation=45, ha='right')
+        ax.set_yticklabels([s[:15] for s in all_strat_names])
+
+        # Add text annotations
+        for i in range(len(all_strat_names)):
+            for j in range(len(all_strat_names)):
+                if matrix_data[i][j] is not None:
+                    text = ax.text(j, i, f"{matrix_data[i][j]:.0f}%",
+                                 ha="center", va="center", color="black", fontsize=7)
+
+        ax.set_title("Head-to-Head Win Rate Matrix (%)")
+        fig.colorbar(im, ax=ax, label='Win Rate %')
+        plt.tight_layout()
+
+        img_path = f"{self.temp_dir}/h2h_matrix.png"
+        plt.savefig(img_path, dpi=150, bbox_inches='tight')
+        plt.close()
+
+        img = Image(img_path, width=6.5*inch, height=5.2*inch)
+        self.story.append(img)
+
+    def _add_matchup_analysis(self):
+        """Add matchup performance analysis."""
+        self.story.append(PageBreak())
+
+        title = Paragraph("Best and Worst Matchups", self.styles['CustomHeading'])
+        self.story.append(title)
+        self.story.append(Spacer(1, 0.2*inch))
+
+        intro = Paragraph(
+            "This section identifies the best and worst opponent combinations for each strategy, "
+            "showing which matchups favor each strategy the most.",
+            self.styles['BodyText']
+        )
+        self.story.append(intro)
+        self.story.append(Spacer(1, 0.3*inch))
+
+        # Build matchup performance
+        matchup_performance = {}
+
+        for idx, row in self.df.iterrows():
+            winner_pos = row['winner_position']
+            strategies = tuple(row[f'p{pos}_strategy'] for pos in range(1, 5))
+
+            for pos in range(1, 5):
+                strategy = strategies[pos - 1]
+                opponents = tuple(strategies[i] for i in range(4) if i != pos - 1)
+
+                if strategy not in matchup_performance:
+                    matchup_performance[strategy] = {}
+                if opponents not in matchup_performance[strategy]:
+                    matchup_performance[strategy][opponents] = {'wins': 0, 'games': 0}
+
+                matchup_performance[strategy][opponents]['games'] += 1
+                if pos == winner_pos:
+                    matchup_performance[strategy][opponents]['wins'] += 1
+
+        # Display top 3 best and worst for each strategy
+        for strategy in sorted(matchup_performance.keys())[:4]:  # Show first 4 strategies to fit
+            matchups = matchup_performance[strategy]
+
+            matchup_winrates = []
+            for opponents, stats in matchups.items():
+                if stats['games'] >= 1:
+                    win_rate = stats['wins'] / stats['games'] * 100
+                    matchup_winrates.append((opponents, stats['wins'], stats['games'], win_rate))
+
+            matchup_winrates.sort(key=lambda x: x[3], reverse=True)
+
+            # Strategy heading
+            strat_title = Paragraph(f"<b>{strategy}</b>", self.styles['BodyText'])
+            self.story.append(strat_title)
+            self.story.append(Spacer(1, 0.1*inch))
+
+            # Best matchups
+            best_text = "<b>Best Matchups:</b><br/>"
+            for opponents, wins, games, win_rate in matchup_winrates[:3]:
+                opp_str = ', '.join([o[:12] for o in opponents])
+                best_text += f"• vs [{opp_str}]: {wins}/{games} ({win_rate:.1f}%)<br/>"
+
+            best_para = Paragraph(best_text, self.styles['BodyText'])
+            self.story.append(best_para)
+            self.story.append(Spacer(1, 0.1*inch))
+
+            # Worst matchups
+            worst_text = "<b>Worst Matchups:</b><br/>"
+            for opponents, wins, games, win_rate in matchup_winrates[-3:]:
+                opp_str = ', '.join([o[:12] for o in opponents])
+                worst_text += f"• vs [{opp_str}]: {wins}/{games} ({win_rate:.1f}%)<br/>"
+
+            worst_para = Paragraph(worst_text, self.styles['BodyText'])
+            self.story.append(worst_para)
+            self.story.append(Spacer(1, 0.2*inch))
 
 
 def generate_pdf_report(csv_file: str, output_file: str) -> str:

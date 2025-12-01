@@ -447,13 +447,22 @@ class ModernismeGame(Game):
 
         return data
 
-    def setup_game(self, num_players: int = 2):
-        """Set up a game of Modernisme."""
-        # Create players with random strategies
+    def setup_game(self, num_players: int = 2, strategy_classes: Optional[List] = None):
+        """Set up a game of Modernisme.
+
+        Args:
+            num_players: Number of players in the game
+            strategy_classes: Optional list of strategy classes for each player.
+                            If None, strategies are assigned randomly.
+        """
+        # Create players with specified or random strategies
         self.log("\nPlayer Strategies:")
         player_names = ["player 1", "player 2", "player 3", "player 4"]
         for i in range(num_players):
-            strategy = get_random_strategy()
+            if strategy_classes and i < len(strategy_classes):
+                strategy = strategy_classes[i]()
+            else:
+                strategy = get_random_strategy()
             player = ModernismePlayer(player_names[i], strategy=strategy)
             self.add_player(player)
             self.log(f"  {player_names[i]}: {strategy.name}")
@@ -925,13 +934,15 @@ class ModernismeGame(Game):
                 player.add_score(total_objective_vp)
 
 
-def play_modernisme_game(log_file: Optional[TextIO] = None, num_players: int = 4):
+def play_modernisme_game(log_file: Optional[TextIO] = None, num_players: int = 4, strategy_classes: Optional[List] = None):
     """
     Play a complete game of Modernisme.
 
     Args:
         log_file: Optional file to write game log to
         num_players: Number of players (default 4)
+        strategy_classes: Optional list of strategy classes to use for each player.
+                         If None, strategies are assigned randomly.
 
     Returns:
         ModernismeGame: The completed game instance
@@ -942,7 +953,7 @@ def play_modernisme_game(log_file: Optional[TextIO] = None, num_players: int = 4
     game.log("MODERNISME - Barcelona's Modernist Movement")
     game.log("=" * 60)
 
-    game.setup_game(num_players=num_players)
+    game.setup_game(num_players=num_players, strategy_classes=strategy_classes)
 
     # Play 4 seasons
     turn_counter = 0
