@@ -656,77 +656,188 @@ class SimulationReport:
         self.story.append(img)
 
     def _add_matchup_analysis(self):
-        """Add matchup performance analysis."""
+        """Add comprehensive matchup performance matrix."""
         self.story.append(PageBreak())
 
-        title = Paragraph("Best and Worst Matchups", self.styles['CustomHeading'])
+        title = Paragraph("Comprehensive Matchup Analysis", self.styles['CustomHeading'])
         self.story.append(title)
         self.story.append(Spacer(1, 0.2*inch))
 
         intro = Paragraph(
-            "This section identifies the best and worst opponent combinations for each strategy, "
-            "showing which matchups favor each strategy the most.",
+            "These matrices show how each strategy performs when facing different opponents. "
+            "Each cell represents the win rate when the row strategy faces the column strategy as an opponent "
+            "(averaged across all games where both strategies were present).",
             self.styles['BodyText']
         )
         self.story.append(intro)
         self.story.append(Spacer(1, 0.3*inch))
 
-        # Build matchup performance
-        matchup_performance = {}
+        # Build comprehensive matchup data: strategy vs each opponent
+        # For each strategy, track win rate when each other strategy is in the game as opponent
+        strategy_usage = {}
+        for pos in range(1, 5):
+            for strategy in self.df[f'p{pos}_strategy']:
+                strategy_usage[strategy] = True
+
+        all_strat_names = sorted(strategy_usage.keys())
+
+        # Matrix: [my_strategy][opponent_strategy] = {'wins': X, 'games': Y}
+        matchup_matrix = {s1: {s2: {'wins': 0, 'games': 0} for s2 in all_strat_names} for s1 in all_strat_names}
 
         for idx, row in self.df.iterrows():
             winner_pos = row['winner_position']
-            strategies = tuple(row[f'p{pos}_strategy'] for pos in range(1, 5))
+            winner_strategy = row['winner_strategy']
+            strategies = [row[f'p{pos}_strategy'] for pos in range(1, 5)]
 
+            # For each position, record performance against opponents
             for pos in range(1, 5):
-                strategy = strategies[pos - 1]
-                opponents = tuple(strategies[i] for i in range(4) if i != pos - 1)
+                my_strategy = strategies[pos - 1]
+                did_win = (pos == winner_pos)
 
-                if strategy not in matchup_performance:
-                    matchup_performance[strategy] = {}
-                if opponents not in matchup_performance[strategy]:
-                    matchup_performance[strategy][opponents] = {'wins': 0, 'games': 0}
+                # Against each opponent in this game
+                for opp_pos in range(1, 5):
+                    if opp_pos != pos:
+                        opponent = strategies[opp_pos - 1]
+                        matchup_matrix[my_strategy][opponent]['games'] += 1
+                        if did_win:
+                            matchup_matrix[my_strategy][opponent]['wins'] += 1
 
-                matchup_performance[strategy][opponents]['games'] += 1
-                if pos == winner_pos:
-                    matchup_performance[strategy][opponents]['wins'] += 1
+        # Create heatmap for each strategy (show all 7 strategies in 2 pages)
+        strategies_per_page = 4
+        for page_num, start_idx in enumerate(range(0, len(all_strat_names), strategies_per_page)):
+            if page_num > 0:
+                self.story.append(PageBreak())
 
-        # Display top 3 best and worst for each strategy
-        for strategy in sorted(matchup_performance.keys())[:4]:  # Show first 4 strategies to fit
-            matchups = matchup_performance[strategy]
+            end_idx = min(start_idx + strategies_per_page, len(all_strat_names))
+            page_strategies = all_strat_names[start_idx:end_idx]
 
-            matchup_winrates = []
-            for opponents, stats in matchups.items():
-                if stats['games'] >= 1:
-                    win_rate = stats['wins'] / stats['games'] * 100
-                    matchup_winrates.append((opponents, stats['wins'], stats['games'], win_rate))
+            # Create subplots for this page
+            fig, axes = plt.subplots(2, 2, figsize=(11, 10))
+            axes = axes.flatten()
 
-            matchup_winrates.sort(key=lambda x: x[3], reverse=True)
+            for i, strategy in enumerate(page_strategies):
+                if i >= len(axes):
+                    break
 
-            # Strategy heading
-            strat_title = Paragraph(f"<b>{strategy}</b>", self.styles['BodyText'])
-            self.story.append(strat_title)
-            self.story.append(Spacer(1, 0.1*inch))
+                ax = axes[i]
 
-            # Best matchups
-            best_text = "<b>Best Matchups:</b><br/>"
-            for opponents, wins, games, win_rate in matchup_winrates[:3]:
-                opp_str = ', '.join([o[:12] for o in opponents])
-                best_text += f"• vs [{opp_str}]: {wins}/{games} ({win_rate:.1f}%)<br/>"
+                # Calculate win rates against each opponent
+                win_rates = []
+                for opponent in all_strat_names:
+                    games = matchup_matrix[strategy][opponent]['games']
+                    if games > 0 and strategy != opponent:
+                        wins = matchup_matrix[strategy][opponent]['wins']
+                        win_rate = (wins / games) * 100
+                    else:
+                        win_rate = np.nan
+                    win_rates.append(win_rate)
 
-            best_para = Paragraph(best_text, self.styles['BodyText'])
-            self.story.append(best_para)
-            self.story.append(Spacer(1, 0.1*inch))
+                # Create bar chart
+                valid_indices = [j for j, wr in enumerate(win_rates) if not np.isnan(wr)]
+                valid_names = [all_strat_names[j][:12] for j in valid_indices]
+                valid_rates = [win_rates[j] for j in valid_indices]
 
-            # Worst matchups
-            worst_text = "<b>Worst Matchups:</b><br/>"
-            for opponents, wins, games, win_rate in matchup_winrates[-3:]:
-                opp_str = ', '.join([o[:12] for o in opponents])
-                worst_text += f"• vs [{opp_str}]: {wins}/{games} ({win_rate:.1f}%)<br/>"
+                bars = ax.barh(range(len(valid_rates)), valid_rates, color='steelblue')
+                ax.set_yticks(range(len(valid_rates)))
+                ax.set_yticklabels(valid_names, fontsize=8)
+                ax.set_xlabel('Win Rate (%)', fontsize=9)
+                ax.set_title(f'{strategy[:20]}', fontsize=10, fontweight='bold')
+                ax.set_xlim(0, 100)
+                ax.grid(axis='x', alpha=0.3)
+                ax.axvline(x=25, color='red', linestyle='--', alpha=0.5, linewidth=1)
 
-            worst_para = Paragraph(worst_text, self.styles['BodyText'])
-            self.story.append(worst_para)
-            self.story.append(Spacer(1, 0.2*inch))
+                # Add value labels
+                for bar, rate in zip(bars, valid_rates):
+                    width = bar.get_width()
+                    ax.text(width + 1, bar.get_y() + bar.get_height()/2,
+                           f'{rate:.1f}%', ha='left', va='center', fontsize=7)
+
+            # Hide unused subplots
+            for i in range(len(page_strategies), len(axes)):
+                axes[i].set_visible(False)
+
+            plt.tight_layout()
+            img_path = f"{self.temp_dir}/matchup_analysis_page{page_num + 1}.png"
+            plt.savefig(img_path, dpi=150, bbox_inches='tight')
+            plt.close()
+
+            if page_num == 0:
+                subtitle = Paragraph("<b>Win Rate vs Each Opponent Strategy (Part 1)</b>", self.styles['BodyText'])
+                self.story.append(subtitle)
+                self.story.append(Spacer(1, 0.1*inch))
+
+            img = Image(img_path, width=7*inch, height=6.5*inch)
+            self.story.append(img)
+
+            if page_num == 0 and len(all_strat_names) > strategies_per_page:
+                self.story.append(Spacer(1, 0.2*inch))
+
+        # Add summary heatmap showing all strategies at once
+        self.story.append(PageBreak())
+        subtitle = Paragraph("<b>Complete Matchup Heatmap</b>", self.styles['CustomHeading'])
+        self.story.append(subtitle)
+        self.story.append(Spacer(1, 0.2*inch))
+
+        summary_text = Paragraph(
+            "This heatmap shows the complete matchup matrix. Each cell shows the win rate of the row "
+            "strategy when facing the column strategy as an opponent. Darker green = higher win rate.",
+            self.styles['BodyText']
+        )
+        self.story.append(summary_text)
+        self.story.append(Spacer(1, 0.3*inch))
+
+        # Create full heatmap
+        matrix_data = []
+        for s1 in all_strat_names:
+            row_data = []
+            for s2 in all_strat_names:
+                if s1 == s2:
+                    row_data.append(np.nan)
+                else:
+                    games = matchup_matrix[s1][s2]['games']
+                    if games > 0:
+                        wins = matchup_matrix[s1][s2]['wins']
+                        win_rate = (wins / games) * 100
+                        row_data.append(win_rate)
+                    else:
+                        row_data.append(np.nan)
+            matrix_data.append(row_data)
+
+        fig, ax = plt.subplots(figsize=(10, 9))
+
+        # Create masked array for NaN values
+        masked_data = np.ma.array(matrix_data, mask=np.isnan(matrix_data))
+
+        im = ax.imshow(masked_data, cmap='RdYlGn', aspect='auto', vmin=0, vmax=100)
+
+        # Labels
+        ax.set_xticks(np.arange(len(all_strat_names)))
+        ax.set_yticks(np.arange(len(all_strat_names)))
+        ax.set_xticklabels([s[:12] for s in all_strat_names], rotation=45, ha='right', fontsize=9)
+        ax.set_yticklabels([s[:15] for s in all_strat_names], fontsize=9)
+
+        # Add text annotations
+        for i in range(len(all_strat_names)):
+            for j in range(len(all_strat_names)):
+                if not np.isnan(matrix_data[i][j]):
+                    text = ax.text(j, i, f"{matrix_data[i][j]:.0f}",
+                                 ha="center", va="center", color="black", fontsize=7)
+
+        ax.set_title("Strategy vs Opponent Win Rate Matrix (%)", fontsize=12, fontweight='bold', pad=20)
+        ax.set_xlabel("Opponent Strategy", fontsize=10, fontweight='bold')
+        ax.set_ylabel("My Strategy", fontsize=10, fontweight='bold')
+
+        cbar = fig.colorbar(im, ax=ax, label='Win Rate %')
+        cbar.ax.tick_params(labelsize=9)
+
+        plt.tight_layout()
+
+        img_path = f"{self.temp_dir}/matchup_heatmap_full.png"
+        plt.savefig(img_path, dpi=150, bbox_inches='tight')
+        plt.close()
+
+        img = Image(img_path, width=7*inch, height=6.2*inch)
+        self.story.append(img)
 
 
 def generate_pdf_report(csv_file: str, output_file: str) -> str:
