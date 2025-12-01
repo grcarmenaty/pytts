@@ -139,10 +139,15 @@ def run_simulations(num_games: int = 100000, num_processes: int = None):
     csv_files = []
     print()  # Newline before progress bar
 
+    # Use larger chunksize to reduce task distribution overhead
+    # Progress bar updates every ~10 games instead of every game
+    chunksize = max(1, min(20, actual_num_games // (num_processes * 100)))
+
     with Pool(processes=num_processes) as pool:
         with tqdm(total=actual_num_games, desc="Running simulations",
-                  unit="game", ncols=100, bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]') as pbar:
-            for result in pool.imap_unordered(run_simulation_wrapper, args, chunksize=1):
+                  unit="game", ncols=100, bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]',
+                  smoothing=0.1) as pbar:
+            for result in pool.imap_unordered(run_simulation_wrapper, args, chunksize=chunksize):
                 csv_files.append(result)
                 pbar.update(1)
 
