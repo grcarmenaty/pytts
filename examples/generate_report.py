@@ -849,10 +849,9 @@ class SimulationReport:
         self.story.append(Spacer(1, 0.2*inch))
 
         intro = Paragraph(
-            "This comprehensive matrix shows ALL strategies' performance against ALL possible "
-            "3-opponent combinations (7³ = 343 combinations). Each row represents one unique "
-            "opponent combination, each column represents a strategy. Cell colors show win rates: "
-            "green = high, red = low. Percentages are shown in each cell.",
+            "This section shows each strategy's performance against ALL possible 3-opponent combinations. "
+            "First, individual bar charts show each strategy's performance. Then, a comprehensive matrix "
+            "shows all strategies side-by-side for easy comparison. Combinations with Random opponents are shown first.",
             self.styles['BodyText']
         )
         self.story.append(intro)
@@ -890,12 +889,154 @@ class SimulationReport:
         all_combinations = set()
         for strategy_data in all_matchup_data.values():
             all_combinations.update(strategy_data.keys())
-        all_combinations = sorted(list(all_combinations))
+
+        # Sort combinations: Random combinations first, then alphabetically
+        def sort_key(combo):
+            has_random = 'Random' in combo
+            return (not has_random, combo)  # False sorts before True, so Random combos come first
+
+        all_combinations = sorted(list(all_combinations), key=sort_key)
 
         if not all_combinations:
             note = Paragraph("No matchup data available", self.styles['BodyText'])
             self.story.append(note)
             return
+
+        # ===== PART 1: Individual bar charts for each strategy =====
+        subtitle1 = Paragraph("<b>Individual Strategy Performance Charts</b>", self.styles['CustomHeading'])
+        self.story.append(subtitle1)
+        self.story.append(Spacer(1, 0.2*inch))
+
+        for strategy_idx, my_strategy in enumerate(all_strat_names):
+            self.story.append(PageBreak())
+
+            # Strategy title
+            strat_title = Paragraph(
+                f"<b>{my_strategy}</b> - Performance vs All Opponent Combinations",
+                self.styles['CustomHeading']
+            )
+            self.story.append(strat_title)
+            self.story.append(Spacer(1, 0.2*inch))
+
+            # Get matchup data for this strategy
+            matchup_list = []
+            for opponents in all_combinations:
+                if opponents in all_matchup_data[my_strategy]:
+                    stats = all_matchup_data[my_strategy][opponents]
+                    if stats['games'] > 0:
+                        win_rate = (stats['wins'] / stats['games']) * 100
+                        matchup_list.append({
+                            'opponents': opponents,
+                            'wins': stats['wins'],
+                            'games': stats['games'],
+                            'win_rate': win_rate
+                        })
+
+            if not matchup_list:
+                note = Paragraph(f"No matchup data available for {my_strategy}", self.styles['BodyText'])
+                self.story.append(note)
+                continue
+
+            # Sort by win rate (descending)
+            matchup_list.sort(key=lambda x: x['win_rate'], reverse=True)
+
+            num_matchups = len(matchup_list)
+
+            # Create figure with appropriate size
+            fig_width = 16
+            fig_height = max(12, num_matchups * 0.08)
+
+            fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+
+            # Prepare data for bar chart
+            win_rates = [m['win_rate'] for m in matchup_list]
+            games_counts = [m['games'] for m in matchup_list]
+            opponent_labels = [
+                f"{m['opponents'][0][:8]}, {m['opponents'][1][:8]}, {m['opponents'][2][:8]}"
+                for m in matchup_list
+            ]
+
+            # Create horizontal bar chart with color coding
+            colors = plt.cm.RdYlGn(np.array(win_rates) / 100)
+
+            y_pos = np.arange(len(win_rates))
+            bars = ax.barh(y_pos, win_rates, color=colors, edgecolor='black', linewidth=0.5)
+
+            # Labels
+            ax.set_yticks(y_pos)
+            ax.set_yticklabels(opponent_labels, fontsize=6)
+            ax.set_xlabel('Win Rate (%)', fontsize=10, fontweight='bold')
+            ax.set_title(f'{my_strategy} vs All Opponent Combinations\n({num_matchups} unique matchups)',
+                        fontsize=12, fontweight='bold', pad=15)
+            ax.set_xlim(0, 100)
+            ax.axvline(x=25, color='red', linestyle='--', alpha=0.3, linewidth=1, label='Random baseline (25%)')
+            ax.grid(axis='x', alpha=0.3)
+            ax.legend(fontsize=8)
+
+            # Add win rate and game count annotations
+            for i, (bar, rate, games) in enumerate(zip(bars, win_rates, games_counts)):
+                width = bar.get_width()
+                ax.text(width + 1, bar.get_y() + bar.get_height()/2,
+                       f'{rate:.1f}% ({games}g)',
+                       ha='left', va='center', fontsize=5)
+
+            plt.tight_layout()
+
+            # Save with high DPI
+            safe_name = my_strategy.replace(' ', '_').replace('/', '_').replace('\\', '_')
+            img_path = f"{self.temp_dir}/complete_matchup_{safe_name}.png"
+            plt.savefig(img_path, dpi=200, bbox_inches='tight')
+            plt.close()
+
+            # Add to PDF
+            max_img_width = 7.5 * inch
+            max_img_height = 10 * inch
+
+            aspect = fig_width / fig_height
+            if aspect > (max_img_width / max_img_height):
+                img_width = max_img_width
+                img_height = img_width / aspect
+            else:
+                img_height = max_img_height
+                img_width = img_height * aspect
+
+            img = Image(img_path, width=img_width, height=img_height)
+            self.story.append(img)
+
+            # Add summary stats
+            self.story.append(Spacer(1, 0.2*inch))
+
+            best_matchup = matchup_list[0]
+            worst_matchup = matchup_list[-1]
+            avg_win_rate = np.mean(win_rates)
+
+            summary = Paragraph(
+                f"<b>Summary for {my_strategy}:</b><br/>"
+                f"• Total unique opponent combinations faced: {num_matchups}<br/>"
+                f"• Average win rate across all matchups: {avg_win_rate:.1f}%<br/>"
+                f"• Best matchup: vs [{', '.join([o[:12] for o in best_matchup['opponents']])}] "
+                f"at {best_matchup['win_rate']:.1f}% ({best_matchup['wins']}/{best_matchup['games']} games)<br/>"
+                f"• Worst matchup: vs [{', '.join([o[:12] for o in worst_matchup['opponents']])}] "
+                f"at {worst_matchup['win_rate']:.1f}% ({worst_matchup['wins']}/{worst_matchup['games']} games)",
+                self.styles['BodyText']
+            )
+            self.story.append(summary)
+
+        # ===== PART 2: Comprehensive matrix showing all strategies =====
+        self.story.append(PageBreak())
+
+        subtitle2 = Paragraph("<b>Comprehensive Strategy Comparison Matrix</b>", self.styles['CustomHeading'])
+        self.story.append(subtitle2)
+        self.story.append(Spacer(1, 0.2*inch))
+
+        matrix_intro = Paragraph(
+            "This matrix shows all strategies side-by-side for easy comparison. "
+            "Each row represents one opponent combination, each column represents a strategy. "
+            "Combinations with Random opponents are shown first.",
+            self.styles['BodyText']
+        )
+        self.story.append(matrix_intro)
+        self.story.append(Spacer(1, 0.3*inch))
 
         # Build matrix: rows = opponent combinations, columns = strategies
         matrix_data = []
