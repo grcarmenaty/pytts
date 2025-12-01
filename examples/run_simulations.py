@@ -50,12 +50,18 @@ def run_single_simulation(game_num: int, logs_dir: Path, strategy_classes: Tuple
     Returns:
         Path to the CSV file created
     """
+    # Create subdirectory based on game number to avoid single-directory bottleneck
+    # e.g., game 1-1000 -> subdir_0000/, game 1001-2000 -> subdir_0001/
+    subdir_num = (game_num - 1) // 1000
+    subdir = logs_dir / f"subdir_{subdir_num:04d}"
+    subdir.mkdir(exist_ok=True)
+
     # Generate unique timestamp-based filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     base_name = f"game_{game_num:06d}_{timestamp}"
 
-    log_file_path = logs_dir / f"{base_name}.log"
-    csv_file_path = logs_dir / f"{base_name}.csv"
+    log_file_path = subdir / f"{base_name}.log"
+    csv_file_path = subdir / f"{base_name}.csv"
 
     # Run game with log file
     with open(log_file_path, 'w') as log_file:
@@ -173,8 +179,8 @@ def aggregate_csvs(logs_dir: Path) -> str:
     print("AGGREGATING CSV FILES")
     print("=" * 70)
 
-    # Find all game CSV files
-    csv_files = sorted(logs_dir.glob("game_*.csv"))
+    # Find all game CSV files in subdirectories
+    csv_files = sorted(logs_dir.glob("*/game_*.csv"))
     print(f"\nFound {len(csv_files):,} game result files")
 
     if not csv_files:
@@ -250,7 +256,7 @@ def aggregate_csvs(logs_dir: Path) -> str:
     print("Cleaning up individual files...")
     deleted_count = 0
     kept_logs_count = 0
-    log_files = list(logs_dir.glob("game_*.log"))
+    log_files = list(logs_dir.glob("*/game_*.log"))
     all_files_to_delete = csv_files + [log for log in log_files if log not in sample_logs]
 
     for file_path in tqdm(all_files_to_delete, desc="Deleting files", unit="file", ncols=100):
@@ -281,12 +287,25 @@ def aggregate_csvs(logs_dir: Path) -> str:
 
         print(f"\n✓ Sample logs saved to: {samples_dir}")
 
-    # Remove the now-empty run subfolder
+    # Remove empty subdirectories
+    print("\nCleaning up empty subdirectories...")
+    subdirs = list(logs_dir.glob("subdir_*"))
+    removed_subdirs = 0
+    for subdir in subdirs:
+        try:
+            subdir.rmdir()
+            removed_subdirs += 1
+        except OSError:
+            pass  # Not empty, skip
+    if removed_subdirs > 0:
+        print(f"✓ Removed {removed_subdirs} empty subdirectories")
+
+    # Remove the now-empty run folder
     try:
         logs_dir.rmdir()
-        print(f"✓ Removed empty subfolder: {logs_dir.name}")
+        print(f"✓ Removed empty run folder: {logs_dir.name}")
     except Exception as e:
-        print(f"Note: Could not remove subfolder (may not be empty): {e}")
+        print(f"Note: Could not remove run folder (may not be empty): {e}")
 
     return str(aggregated_file)
 
