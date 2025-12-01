@@ -74,6 +74,11 @@ def run_single_simulation(game_num: int, logs_dir: Path, strategy_classes: Tuple
     return str(csv_file_path)
 
 
+def run_simulation_wrapper(args_tuple):
+    """Wrapper for imap_unordered to unpack arguments."""
+    return run_single_simulation(*args_tuple)
+
+
 def generate_strategy_combinations(num_players: int = 4) -> List[Tuple]:
     """
     Generate all possible strategy combinations for the given number of players.
@@ -133,10 +138,6 @@ def run_simulations(num_games: int = 100000, num_processes: int = None):
     # Run simulations in parallel with tqdm progress bar
     csv_files = []
     print()  # Newline before progress bar
-
-    # Wrapper function for imap_unordered (which needs single-arg function)
-    def run_simulation_wrapper(args_tuple):
-        return run_single_simulation(*args_tuple)
 
     with Pool(processes=num_processes) as pool:
         with tqdm(total=actual_num_games, desc="Running simulations",
