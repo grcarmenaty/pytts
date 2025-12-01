@@ -21,6 +21,7 @@ import numpy as np
 from typing import Dict, List, Tuple
 from multiprocessing import Pool, cpu_count
 from itertools import product
+from tqdm import tqdm
 import time
 
 
@@ -129,30 +130,20 @@ def run_simulations(num_games: int = 100000, num_processes: int = None):
             args.append((game_num, logs_dir, strategy_combo))
             game_num += 1
 
-    # Run simulations in parallel with progress tracking
+    # Run simulations in parallel with tqdm progress bar
     csv_files = []
-    print()  # Newline for progress updates
+    print()  # Newline before progress bar
     with Pool(processes=num_processes) as pool:
-        # Use imap for progress tracking
-        completed = 0
-        for result in pool.starmap(run_single_simulation, args, chunksize=10):
-            csv_files.append(result)
-            completed += 1
-
-            # Progress updates
-            if completed % 100 == 0 or completed == actual_num_games:
-                elapsed = time.time() - start_time
-                rate = completed / elapsed if elapsed > 0 else 0
-                remaining = (actual_num_games - completed) / rate if rate > 0 else 0
-                print(f"  Progress: {completed:,} / {actual_num_games:,} games "
-                      f"({completed / actual_num_games * 100:.1f}%) - "
-                      f"Rate: {rate:.1f} games/sec - "
-                      f"ETA: {remaining/60:.1f} min")
+        with tqdm(total=actual_num_games, desc="Running simulations",
+                  unit="game", ncols=100, bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]') as pbar:
+            for result in pool.starmap(run_single_simulation, args, chunksize=10):
+                csv_files.append(result)
+                pbar.update(1)
 
     elapsed_time = time.time() - start_time
-    print(f"\nCompleted {actual_num_games:,} simulations in {elapsed_time/60:.1f} minutes!")
-    print(f"Average: {actual_num_games/elapsed_time:.1f} games/second")
-    print(f"All logs saved to: {logs_dir}")
+    print(f"\n✓ Completed {actual_num_games:,} simulations in {elapsed_time/60:.1f} minutes!")
+    print(f"  Average: {actual_num_games/elapsed_time:.1f} games/second")
+    print(f"  All logs saved to: {logs_dir}")
 
     return csv_files
 
@@ -185,13 +176,24 @@ def aggregate_csvs(logs_dir: Path) -> str:
 
     df_list = []
     skipped = 0
-    for i, csv_file in enumerate(csv_files):
-        if (i + 1) % 10000 == 0:
-            print(f"  Loaded {i + 1:,} / {len(csv_files):,} files...")
+    # Track strategy combinations and their corresponding log files for sampling
+    combination_logs = {}  # combination tuple -> list of log file paths
+
+    for csv_file in tqdm(csv_files, desc="Loading CSVs", unit="file", ncols=100):
         try:
             df = pd.read_csv(csv_file)
             if not df.empty:
                 df_list.append(df)
+
+                # Extract strategy combination from this game
+                strategies = tuple(df.iloc[0][f'p{i}_strategy'] for i in range(1, 5))
+
+                # Get corresponding log file (same base name)
+                log_file = csv_file.with_suffix('.log')
+                if log_file.exists():
+                    if strategies not in combination_logs:
+                        combination_logs[strategies] = []
+                    combination_logs[strategies].append(log_file)
             else:
                 skipped += 1
         except (pd.errors.EmptyDataError, pd.errors.ParserError) as e:
@@ -199,7 +201,7 @@ def aggregate_csvs(logs_dir: Path) -> str:
             continue
 
     if skipped > 0:
-        print(f"  Skipped {skipped:,} empty or corrupted CSV files")
+        print(f"\n  Skipped {skipped:,} empty or corrupted CSV files")
 
     if not df_list:
         print("ERROR: No valid CSV files found after filtering!")
@@ -224,20 +226,49 @@ def aggregate_csvs(logs_dir: Path) -> str:
     print(f"  - {file_size_mb:.1f} MB")
     print(f"  - Completed in {elapsed:.1f} seconds")
 
-    # Delete individual CSV and log files
-    print("\nCleaning up individual files...")
-    deleted_count = 0
-    log_files = list(logs_dir.glob("game_*.log"))
-    all_files = csv_files + log_files
+    # Select one random log per strategy combination to keep
+    import random
+    sample_logs = set()
+    for strategies, log_list in combination_logs.items():
+        if log_list:
+            sample_logs.add(random.choice(log_list))
 
-    for file_path in all_files:
+    print(f"\nKeeping {len(sample_logs):,} sample log files (one per strategy combination)")
+
+    # Delete individual CSV and log files (except sample logs)
+    print("Cleaning up individual files...")
+    deleted_count = 0
+    kept_logs_count = 0
+    log_files = list(logs_dir.glob("game_*.log"))
+    all_files_to_delete = csv_files + [log for log in log_files if log not in sample_logs]
+
+    for file_path in tqdm(all_files_to_delete, desc="Deleting files", unit="file", ncols=100):
         try:
             file_path.unlink()
             deleted_count += 1
         except Exception as e:
-            print(f"Warning: Could not delete {file_path}: {e}")
+            print(f"\nWarning: Could not delete {file_path}: {e}")
 
-    print(f"✓ Deleted {deleted_count:,} individual files ({len(csv_files):,} CSVs + {len(log_files):,} logs)")
+    kept_logs_count = len(sample_logs)
+    print(f"\n✓ Deleted {deleted_count:,} files ({len(csv_files):,} CSVs + {len(log_files) - kept_logs_count:,} logs)")
+    print(f"✓ Kept {kept_logs_count:,} sample log files")
+
+    # Move sample logs to parent folder with descriptive naming
+    if sample_logs:
+        print("\nMoving sample logs to parent folder...")
+        samples_dir = parent_dir / "sample_logs"
+        samples_dir.mkdir(exist_ok=True)
+
+        for log_file in tqdm(sample_logs, desc="Moving sample logs", unit="file", ncols=100):
+            try:
+                # Create a descriptive name based on the original filename
+                new_name = f"{timestamp}_{log_file.name}"
+                new_path = samples_dir / new_name
+                log_file.rename(new_path)
+            except Exception as e:
+                print(f"\nWarning: Could not move {log_file}: {e}")
+
+        print(f"\n✓ Sample logs saved to: {samples_dir}")
 
     # Remove the now-empty run subfolder
     try:

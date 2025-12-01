@@ -12,6 +12,9 @@ reportlab>=4.0.0
 matplotlib>=3.7.0
 seaborn>=0.13.0
 
+# Progress bars
+tqdm>=4.65.0
+
 # Additional dependencies pulled in automatically:
 # - pillow (for reportlab image support)
 # - python-dateutil (for pandas datetime)
