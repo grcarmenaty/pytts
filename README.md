@@ -1,165 +1,188 @@
 # PyTTS - Python Tabletop Simulator
 
-An object-oriented framework for building tabletop game probability simulators in Python.
+A comprehensive simulation framework for the Modernisme board game with AI strategy analysis.
 
 ## Features
 
-- **Flexible OOP Design**: Clean class hierarchy for building complex card games
-- **Strategy Pattern**: Implement custom player strategies for game simulation
-- **Rule-Based Slots**: Define placement rules for board positions
-- **Multiple Decks**: Support for draw decks, discard piles, and custom deck types
-- **Win Conditions**: Customizable game-ending conditions
-- **Round Management**: Automatic turn and round execution
-
-## Architecture
-
-### Core Classes
-
-- **Card**: Basic building block with properties and methods
-- **Hand**: Manages a player's collection of cards
-- **Deck**: Card collection with draw and shuffle functionality
-- **DiscardPile**: Special visible deck for discarded cards
-- **Slot**: Board position with placement/removal rules
-- **Board**: Collection of slots
-- **Player**: Has hand and implements strategy pattern
-- **Round**: Manages turn execution
-- **Game**: Orchestrates all game elements
-
-### Class Hierarchy
-
-```
-Game
-├── Players (with strategy methods)
-│   └── Hand (collection of Cards)
-├── Decks (draw, shuffle)
-│   └── Cards
-├── Boards
-│   └── Slots (with rules)
-│       └── Cards
-└── Rounds
-    └── Turns (execute player strategies)
-```
-
-## Installation
-
-```bash
-# Clone the repository
-git clone <repository-url>
-cd pytts
-
-# No dependencies required - pure Python!
-```
+- 🎲 **Full Game Implementation** - Complete Modernisme rules (v0.4.1)
+- 🤖 **7 AI Strategies** - From random baseline to sophisticated optimizers
+- ⚡ **Multiprocessing** - Parallel game execution for fast simulations
+- 📊 **Comprehensive Analytics** - 210+ data points per game
+- 📈 **Beautiful Reports** - Automatic PDF generation with visualizations
+- 📝 **Detailed Logging** - Turn-by-turn game transcripts
 
 ## Quick Start
 
-```python
-from pytts import Game, Player, Card, Deck, Board, Slot
-
-# Create a custom player with strategy
-class MyPlayer(Player):
-    def strategy(self, game):
-        # Draw a card
-        deck = game.get_deck("main")
-        self.draw_cards(deck, 1)
-
-        # Play a card
-        if not self.hand.is_empty():
-            card = self.hand.cards[0]
-            slot = game.get_board("main").get_slot("slot1")
-            self.play_card(card, slot)
-
-# Set up the game
-game = Game("My Game")
-game.add_player(MyPlayer("Alice"))
-game.add_player(MyPlayer("Bob"))
-
-# Create and add a deck
-cards = [Card(f"Card {i}", value=i) for i in range(10)]
-deck = Deck(cards)
-deck.shuffle()
-game.add_deck("main", deck)
-
-# Create a board with slots
-board = Board("main")
-board.add_slot(Slot("slot1"))
-board.add_slot(Slot("slot2"))
-game.add_board("main", board)
-
-# Run the game
-game.run(max_rounds=5)
-```
-
-## Examples
-
-See `examples/simple_game.py` for a complete "High Card" game implementation.
+### Installation with uv (Recommended)
 
 ```bash
-python examples/simple_game.py
+# Install uv if you haven't already
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install dependencies
+uv pip install -r requirements.txt
+
+# Or install the project
+uv pip install -e .
 ```
 
-## Testing
-
-Run the basic test suite:
+### Installation with pip
 
 ```bash
-python tests/test_basic.py
+pip install -r requirements.txt
 ```
 
-## Advanced Features
+### Run Simulations
 
-### Custom Slot Rules
+```bash
+# Run 1,000 games for testing
+python examples/run_simulations.py 1000
 
-```python
-def can_place_rule(card, player):
-    # Only allow cards with even values
-    return card.get_property("value", 0) % 2 == 0
+# Run 100,000 games (default) with all CPU cores
+python examples/run_simulations.py
 
-def can_take_rule(card, player):
-    # Only owner can take cards
-    return card.owner == player
-
-slot = Slot("restricted_slot",
-            can_place_rule=can_place_rule,
-            can_take_rule=can_take_rule,
-            max_cards=3)
+# Run with specific number of processes
+python examples/run_simulations.py 10000 4
 ```
 
-### Win Conditions
+## Output Files
 
-```python
-def check_score_win(game):
-    for player in game.players:
-        if player.score >= 10:
-            game.end_game(player)
-            return True
-    return False
+All results are saved to `examples/modernisme_logs/`:
 
-game.set_win_condition(check_score_win)
+- `game_XXXXXX_[timestamp].log` - Human-readable game transcript
+- `game_XXXXXX_[timestamp].csv` - Structured game data (210+ columns)
+- `all_games_[timestamp].csv` - Aggregated data from all games
+- `simulation_report_[timestamp].pdf` - Professional analysis report
+- `simulation_summary.txt` - Text-based statistics summary
+
+## Project Structure
+
+```
+pytts/
+├── pytts/                      # Core game framework
+│   ├── game.py                 # Base game classes
+│   ├── player.py               # Player management
+│   ├── card.py                 # Card system
+│   ├── deck.py                 # Deck management
+│   └── strategy.py             # AI strategies (7 implementations)
+├── examples/
+│   ├── modernisme_game.py      # Full Modernisme implementation
+│   ├── run_simulations.py      # Simulation runner
+│   ├── generate_report.py      # PDF report generation
+│   └── modernisme_logs/        # Output directory (gitignored)
+├── STRATEGIES.md               # Detailed strategy documentation
+├── requirements.txt            # Dependencies
+├── pyproject.toml             # Project configuration
+└── README.md                  # This file
 ```
 
-### Discard Piles
+## Strategies
 
-```python
-from pytts import DiscardPile
+Seven AI strategies are implemented:
 
-discard = DiscardPile()
-game.add_discard_pile("discard", discard)
+1. **Random** - Baseline control (random selection)
+2. **Maximum Works** - Quantity focus (play most cards)
+3. **High Value Works** - Quality focus (play highest VP cards)
+4. **Room Theme/Type Optimizer** - Complex spatial optimization
+5. **Theme Fashion Focus** - Targets moda_tema objectives
+6. **Set Fashion Focus** - Targets moda_conjunto objectives
+7. **Commission Focus** - Optimizes secret encargo objectives
 
-# All players can see all cards
-all_discarded = discard.get_all_cards()
+See [STRATEGIES.md](STRATEGIES.md) for detailed explanations.
+
+## Data Analysis
+
+Each game generates 210+ data columns including:
+
+**Per Player:**
+- Final scores and placement
+- Total cards played/discarded
+- Works by type (Crafts, Painting, Sculpture, Relic)
+- Works by theme (Nature, Mythology, Society, Orientalism)
+
+**Turn-by-Turn (16 turns × 4 players):**
+- VP at start/end of turn
+- VP gained/spent
+- Cards played/discarded
+- Works commissioned by type/theme
+
+**Game Summary:**
+- Winner and strategy
+- Score statistics
+- Objective cards
+- Position-based performance
+
+## PDF Reports
+
+Automatically generated reports include:
+
+- Executive summary with key findings
+- Strategy performance charts (bar, pie)
+- Position-based win rate heatmap
+- VP distribution box plots
+- Score differential analysis
+- Data-driven insights and recommendations
+
+## Performance
+
+- **Speed**: ~180-270 games/second (with multiprocessing)
+- **Scale**: 100,000 games in ~6-10 minutes
+- **Memory**: Efficient CSV streaming for large datasets
+
+## Requirements
+
+- Python 3.9+
+- pandas 2.0+
+- numpy 1.23+
+- reportlab 4.0+
+- matplotlib 3.7+
+- seaborn 0.13+
+
+## Development
+
+```bash
+# Install with dev dependencies
+uv pip install -e ".[dev]"
+
+# Run a single game (interactive)
+python examples/modernisme_game.py
+
+# Run tests
+pytest
+
+# Format code
+black .
+isort .
 ```
 
 ## Use Cases
 
-- **Probability Analysis**: Simulate thousands of games to analyze strategies
-- **Game Design**: Prototype and test game mechanics
-- **AI Development**: Train agents with different strategies
-- **Educational**: Learn OOP design patterns through game development
-
-## License
-
-MIT License - see LICENSE file for details
+- **Strategy Development** - Test new AI strategies
+- **Game Balance** - Analyze mechanic effectiveness
+- **Research** - Study optimal play patterns
+- **Benchmarking** - Compare algorithm performance
+- **Data Science** - Large-scale game analytics
 
 ## Contributing
 
-Contributions welcome! This is a framework designed for extensibility.
+Contributions welcome! Areas of interest:
+
+- New AI strategies
+- Performance optimizations
+- Additional visualizations
+- Game variants
+- Documentation improvements
+
+## License
+
+MIT License - See LICENSE file for details
+
+## Credits
+
+- Game Design: Modernisme by [Publisher]
+- Simulation Framework: PyTTS Contributors
+- Strategy Implementation: AI research and development
+
+---
+
+**Ready to analyze 100,000 games?** Start with `python examples/run_simulations.py` 🎲📊

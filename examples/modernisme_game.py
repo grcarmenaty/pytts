@@ -12,8 +12,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from pytts import Game, Player, Card, Deck, Board, Slot, Hand, DiscardPile
 from pytts.strategy import Strategy, get_random_strategy
 import random
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, TextIO
 from enum import Enum
+from io import StringIO
 
 
 class ArtType(Enum):
@@ -44,6 +45,41 @@ class ModernismePlayer(Player):
         self.completed_rooms: List[int] = []  # Track which rooms are complete
         self.ai_strategy: Optional[Strategy] = strategy  # AI strategy
         self.reliquia_themes: dict = {}  # Maps reliquia card to assigned theme
+
+        # Turn-by-turn statistics tracking
+        self.turn_stats: List[dict] = []  # Stats for each turn
+        self.current_turn_stats: dict = {}  # Current turn being tracked
+
+    def start_turn(self, season: int, turn_number: int):
+        """Initialize statistics tracking for a new turn."""
+        from collections import defaultdict
+        self.current_turn_stats = {
+            'season': season,
+            'turn': turn_number,
+            'vp_start': self.score,
+            'vp_gained': 0,
+            'cards_played': 0,
+            'cards_discarded': 0,
+            'cards_in_hand_start': len(self.hand.cards),
+            'cards_in_hand_end': 0,
+            'works_by_type': defaultdict(int),
+            'works_by_theme': defaultdict(int),
+            'total_vp_spent': 0,
+            'total_vp_earned_from_plays': 0,
+        }
+
+    def end_turn(self):
+        """Finalize statistics for the current turn."""
+        self.current_turn_stats['vp_end'] = self.score
+        self.current_turn_stats['vp_gained'] = self.score - self.current_turn_stats['vp_start']
+        self.current_turn_stats['cards_in_hand_end'] = len(self.hand.cards)
+
+        # Convert defaultdicts to regular dicts for serialization
+        self.current_turn_stats['works_by_type'] = dict(self.current_turn_stats['works_by_type'])
+        self.current_turn_stats['works_by_theme'] = dict(self.current_turn_stats['works_by_theme'])
+
+        self.turn_stats.append(self.current_turn_stats.copy())
+        self.current_turn_stats = {}
 
     def strategy(self, game: 'ModernismeGame') -> None:
         """
@@ -82,7 +118,7 @@ class ModernismePlayer(Player):
 
         # Reset pool at end of turn
         if self.pool > 0:
-            print(f"  {self.pool} VP remaining in pool discarded at end of turn")
+            game.log(f"  {self.pool} VP remaining in pool discarded at end of turn")
         self.pool = 0
 
     def _try_commission_work(self, work: Card, game: 'ModernismeGame') -> bool:
@@ -143,22 +179,26 @@ class ModernismePlayer(Player):
             # Discard cards and add their VP to the pool
             discard_vp = sum(card.get_property("vp", 0) for card in best_discard)
             discard_names = [f"{card.name} ({card.get_property('vp', 0)} VP)" for card in best_discard]
-            print(f"    Discarded: {', '.join(discard_names)} (added {discard_vp} VP to pool)")
+            game.log(f"    Discarded: {', '.join(discard_names)} (added {discard_vp} VP to pool)")
 
             for card in best_discard:
                 self.hand.remove_card(card)
                 self.discard_pile.append(card)
                 self.pool += card.get_property("vp", 0)
 
+                # Track discarded cards
+                if self.current_turn_stats:
+                    self.current_turn_stats['cards_discarded'] += 1
+
         # Now we should have enough VP in the pool
         if self.pool < work_vp:
             return False
 
-        print(f"    Pool before commission: {self.pool} VP")
+        game.log(f"    Pool before commission: {self.pool} VP")
 
         # Spend from pool
         self.pool -= work_vp
-        print(f"    Spent {work_vp} VP from pool, remaining: {self.pool} VP")
+        game.log(f"    Spent {work_vp} VP from pool, remaining: {self.pool} VP")
 
         # Remove work from hand
         self.hand.remove_card(work)
@@ -187,15 +227,29 @@ class ModernismePlayer(Player):
                     vp_gain = base_vp + bonus_vp
                     self.add_score(vp_gain)
 
+                    # Track statistics
+                    if self.current_turn_stats:
+                        self.current_turn_stats['cards_played'] += 1
+                        self.current_turn_stats['total_vp_spent'] += work_vp
+                        self.current_turn_stats['total_vp_earned_from_plays'] += vp_gain
+
+                        # Track by type
+                        art_type = work.get_property("art_type")
+                        type_key = art_type.value if hasattr(art_type, 'value') else str(art_type)
+                        self.current_turn_stats['works_by_type'][type_key] += 1
+
+                        # Track by theme
+                        theme = work.get_property("theme")
+                        theme_key = theme.value if hasattr(theme, 'value') else str(theme)
+                        self.current_turn_stats['works_by_theme'][theme_key] += 1
+
                     # Detailed logging
                     room_name = slot.get_property("room")
                     space_id = slot.get_property("space_id")
-                    print(f"    → Placed '{work.name}' in {room_name} (space {space_id})")
-                    print(f"      Base VP: {base_vp}", end="")
-                    if bonus_vp > 0:
-                        print(f" + {bonus_vp} (theme bonus from {matching_artist.name})", end="")
-                    print(f" = {vp_gain} VP total")
-                    print(f"      {self.name}'s total score: {self.score} VP")
+                    game.log(f"    → Placed '{work.name}' in {room_name} (space {space_id})")
+                    bonus_msg = f" + {bonus_vp} (theme bonus from {matching_artist.name})" if bonus_vp > 0 else ""
+                    game.log(f"      Base VP: {base_vp}{bonus_msg} = {vp_gain} VP total")
+                    game.log(f"      {self.name}'s total score: {self.score} VP")
 
                     return True
 
@@ -222,13 +276,13 @@ class ModernismePlayer(Player):
         if not reliquias:
             return
 
-        print(f"\n{self.name} contextualizing Relics:")
+        game.log(f"\n{self.name} contextualizing Relics:")
 
         # For each Relic, determine the best theme
         for work, slot in reliquias:
             best_theme = self._find_best_theme_for_reliquia(work, slot, game)
             self.reliquia_themes[work] = best_theme
-            print(f"  {work.name} → {best_theme.value} theme")
+            game.log(f"  {work.name} → {best_theme.value} theme")
 
     def _find_best_theme_for_reliquia(self, reliquia: Card, slot: 'Slot', game: 'ModernismeGame') -> Theme:
         """Find the best theme to assign to a Reliquia."""
@@ -294,24 +348,124 @@ class ModernismePlayer(Player):
 class ModernismeGame(Game):
     """The Modernisme game implementation."""
 
-    def __init__(self):
+    def __init__(self, log_file: Optional[TextIO] = None):
         super().__init__("Modernisme")
         self.artist_discard: List[Card] = []  # Artist discard pile
         self.season = 1  # Current season (1-4)
         self.first_player_idx = 0  # Index of first player
         self.moda_tema: Optional[Card] = None  # Public theme fashion card
         self.moda_conjunto: Optional[Card] = None  # Public set fashion card
+        self.log_file = log_file  # Optional file to log game output
 
-    def setup_game(self, num_players: int = 2):
-        """Set up a game of Modernisme."""
-        # Create players with random strategies
-        print("\nPlayer Strategies:")
-        player_names = ["Alice", "Bob", "Carol", "David"]
+    def log(self, message: str = ""):
+        """Log a message to file or console."""
+        if self.log_file:
+            self.log_file.write(message + "\n")
+        else:
+            print(message)
+
+    def get_game_data(self) -> dict:
+        """
+        Get structured game data for CSV export.
+
+        Returns:
+            Dictionary containing game results and comprehensive player statistics
+        """
+        data = {
+            'game_id': id(self),
+            'moda_tema': self.moda_tema.name if self.moda_tema else '',
+            'moda_conjunto': self.moda_conjunto.name if self.moda_conjunto else '',
+        }
+
+        # Add comprehensive player data
+        for i, player in enumerate(self.players):
+            position = i + 1  # 1-indexed position
+            board = self.get_board(f"{player.name}_board")
+            total_works = sum(1 for slot in board.slots if not slot.is_empty()) if board else 0
+
+            # Basic player info
+            data[f'p{position}_name'] = player.name
+            data[f'p{position}_strategy'] = player.ai_strategy.name if player.ai_strategy else 'None'
+            data[f'p{position}_final_score'] = player.score
+            data[f'p{position}_total_works'] = total_works
+            data[f'p{position}_commission'] = player.commission_card.name if player.commission_card else ''
+
+            # Aggregate statistics across all turns
+            total_cards_played = sum(turn.get('cards_played', 0) for turn in player.turn_stats)
+            total_cards_discarded = sum(turn.get('cards_discarded', 0) for turn in player.turn_stats)
+            total_vp_earned = sum(turn.get('total_vp_earned_from_plays', 0) for turn in player.turn_stats)
+            total_vp_spent = sum(turn.get('total_vp_spent', 0) for turn in player.turn_stats)
+
+            data[f'p{position}_total_cards_played'] = total_cards_played
+            data[f'p{position}_total_cards_discarded'] = total_cards_discarded
+            data[f'p{position}_total_vp_earned'] = total_vp_earned
+            data[f'p{position}_total_vp_spent'] = total_vp_spent
+
+            # Aggregate works by type
+            works_by_type = {}
+            for turn in player.turn_stats:
+                for art_type, count in turn.get('works_by_type', {}).items():
+                    works_by_type[art_type] = works_by_type.get(art_type, 0) + count
+
+            for art_type in ['Crafts', 'Painting', 'Sculpture', 'Relic']:
+                data[f'p{position}_works_{art_type.lower()}'] = works_by_type.get(art_type, 0)
+
+            # Aggregate works by theme
+            works_by_theme = {}
+            for turn in player.turn_stats:
+                for theme, count in turn.get('works_by_theme', {}).items():
+                    works_by_theme[theme] = works_by_theme.get(theme, 0) + count
+
+            for theme in ['Nature', 'Mythology', 'Society', 'Orientalism', 'No theme']:
+                theme_key = theme.lower().replace(' ', '_')
+                data[f'p{position}_works_{theme_key}'] = works_by_theme.get(theme, 0)
+
+            # Turn-by-turn data (16 turns total: 4 players x 4 seasons)
+            for turn_idx, turn_stat in enumerate(player.turn_stats, 1):
+                data[f'p{position}_t{turn_idx}_season'] = turn_stat.get('season', 0)
+                data[f'p{position}_t{turn_idx}_vp_start'] = turn_stat.get('vp_start', 0)
+                data[f'p{position}_t{turn_idx}_vp_gained'] = turn_stat.get('vp_gained', 0)
+                data[f'p{position}_t{turn_idx}_vp_end'] = turn_stat.get('vp_end', 0)
+                data[f'p{position}_t{turn_idx}_cards_played'] = turn_stat.get('cards_played', 0)
+                data[f'p{position}_t{turn_idx}_cards_discarded'] = turn_stat.get('cards_discarded', 0)
+                data[f'p{position}_t{turn_idx}_vp_spent'] = turn_stat.get('total_vp_spent', 0)
+                data[f'p{position}_t{turn_idx}_vp_earned'] = turn_stat.get('total_vp_earned_from_plays', 0)
+
+        # Determine winner
+        winner = max(self.players, key=lambda p: (p.score, -sum(1 for slot in self.get_board(f"{p.name}_board").slots if not slot.is_empty())))
+        winner_position = self.players.index(winner) + 1
+        data['winner_position'] = winner_position
+        data['winner_strategy'] = winner.ai_strategy.name if winner.ai_strategy else 'None'
+        data['winner_score'] = winner.score
+
+        # Calculate score statistics
+        scores = [p.score for p in self.players]
+        data['max_score'] = max(scores)
+        data['min_score'] = min(scores)
+        data['score_difference'] = max(scores) - min(scores)
+        data['avg_score'] = sum(scores) / len(scores)
+
+        return data
+
+    def setup_game(self, num_players: int = 2, strategy_classes: Optional[List] = None):
+        """Set up a game of Modernisme.
+
+        Args:
+            num_players: Number of players in the game
+            strategy_classes: Optional list of strategy classes for each player.
+                            If None, strategies are assigned randomly.
+        """
+        # Create players with specified or random strategies
+        self.log("\nPlayer Strategies:")
+        player_names = ["player 1", "player 2", "player 3", "player 4"]
         for i in range(num_players):
-            strategy = get_random_strategy()
+            if strategy_classes and i < len(strategy_classes):
+                strategy = strategy_classes[i]()
+            else:
+                strategy = get_random_strategy()
             player = ModernismePlayer(player_names[i], strategy=strategy)
             self.add_player(player)
-            print(f"  {player_names[i]}: {strategy.name}")
+            self.log(f"  {player_names[i]}: {strategy.name}")
 
         # Select moda cards (public objectives)
         moda_tema_cards = self._create_moda_tema_cards()
@@ -319,9 +473,9 @@ class ModernismeGame(Game):
         self.moda_tema = random.choice(moda_tema_cards)
         self.moda_conjunto = random.choice(moda_conjunto_cards)
 
-        print(f"\nPublic Objectives:")
-        print(f"  Theme Fashion: {self.moda_tema.name}")
-        print(f"  Set Fashion: {self.moda_conjunto.name}")
+        self.log(f"\nPublic Objectives:")
+        self.log(f"  Theme Fashion: {self.moda_tema.name}")
+        self.log(f"  Set Fashion: {self.moda_conjunto.name}")
 
         # Create work deck
         works = self._create_work_deck()
@@ -355,17 +509,17 @@ class ModernismeGame(Game):
         # Each player selects a secret commission
         encargo_cards = self._create_encargo_cards()
         random.shuffle(encargo_cards)
-        print(f"\nPlayers selecting secret commissions:")
+        self.log(f"\nPlayers selecting secret commissions:")
         for player in self.players:
             # Draw 3, pick 1
             options = encargo_cards[:3]
             encargo_cards = encargo_cards[3:]  # Remove used cards
             # AI randomly picks one
             player.commission_card = random.choice(options)
-            print(f"  {player.name} selected a secret commission")
+            self.log(f"  {player.name} selected a secret commission")
 
-        print(f"\nGame setup complete with {num_players} players!")
-        print(f"Each player has 6 work cards, 2 active artists, and 1 secret commission.")
+        self.log(f"\nGame setup complete with {num_players} players!")
+        self.log(f"Each player has 6 work cards, 2 active artists, and 1 secret commission.")
 
     def _create_work_deck(self) -> List[Card]:
         """Create the deck of 112 work cards matching xlsx specifications."""
@@ -596,11 +750,11 @@ class ModernismeGame(Game):
         # Discard old artist
         self.artist_discard.append(old_artist)
 
-        print(f"  {player.name} hired {new_artist.name}, dismissed {old_artist.name}")
+        self.log(f"  {player.name} hired {new_artist.name}, dismissed {old_artist.name}")
 
     def end_season(self) -> None:
         """Handle end of season: pass discards and refill hands."""
-        print(f"\n=== End of Season {self.season} ===")
+        self.log(f"\n=== End of Season {self.season} ===")
 
         # Pass discards counter-clockwise (to the right in player list)
         discards_to_pass = []
@@ -608,19 +762,19 @@ class ModernismeGame(Game):
             discards_to_pass.append(player.discard_pile[:])
             player.discard_pile = []
 
-        print("\nPassing discards counterclockwise:")
+        self.log("\nPassing discards counterclockwise:")
         for i, player in enumerate(self.players):
             # Counterclockwise = next player in list (wraps around)
             next_idx = (i + 1) % len(self.players)
             cards_received = discards_to_pass[i]
             if cards_received:
-                print(f"  {self.players[next_idx].name} receives {len(cards_received)} cards from {player.name}")
+                self.log(f"  {self.players[next_idx].name} receives {len(cards_received)} cards from {player.name}")
                 for card in cards_received:
                     self.players[next_idx].hand.add_card(card)
 
         # Refill hands to 6 cards
         work_deck = self.get_deck("works")
-        print("\nRefilling hands to 6 cards:")
+        self.log("\nRefilling hands to 6 cards:")
         for player in self.players:
             cards_before = len(player.hand)
             while len(player.hand) < 6 and not work_deck.is_empty():
@@ -629,11 +783,11 @@ class ModernismeGame(Game):
                     player.hand.add_card(cards[0])
             cards_drawn = len(player.hand) - cards_before
             if cards_drawn > 0:
-                print(f"  {player.name} drew {cards_drawn} cards (now has {len(player.hand)})")
+                self.log(f"  {player.name} drew {cards_drawn} cards (now has {len(player.hand)})")
 
         # First player marker passes clockwise (to previous player in counterclockwise order)
         self.first_player_idx = (self.first_player_idx - 1) % len(self.players)
-        print(f"\nFirst player for next season: {self.players[self.first_player_idx].name}")
+        self.log(f"\nFirst player for next season: {self.players[self.first_player_idx].name}")
 
         self.season += 1
 
@@ -687,15 +841,15 @@ class ModernismeGame(Game):
 
     def _score_objectives(self):
         """Score all moda and encargo objectives."""
-        print("\n" + "=" * 60)
-        print("OBJECTIVE SCORING - Moda & Encargo")
-        print("=" * 60)
+        self.log("\n" + "=" * 60)
+        self.log("OBJECTIVE SCORING - Moda & Encargo")
+        self.log("=" * 60)
 
         for player in self.players:
             board = self.get_board(f"{player.name}_board")
             total_objective_vp = 0
 
-            print(f"\n{player.name}:")
+            self.log(f"\n{player.name}:")
 
             # Count works by type and theme
             works = []
@@ -727,7 +881,7 @@ class ModernismeGame(Game):
                 if times_completed > 0:
                     vp_earned = times_completed * vp_per
                     total_objective_vp += vp_earned
-                    print(f"  Theme Fashion ({self.moda_tema.name}): {times_completed}x = +{vp_earned} VP")
+                    self.log(f"  Theme Fashion ({self.moda_tema.name}): {times_completed}x = +{vp_earned} VP")
 
             # Score moda_conjunto (public adjacent set objective)
             if self.moda_conjunto:
@@ -738,7 +892,7 @@ class ModernismeGame(Game):
                 if times_completed > 0:
                     vp_earned = times_completed * vp_per
                     total_objective_vp += vp_earned
-                    print(f"  Set Fashion ({self.moda_conjunto.name}): {times_completed}x = +{vp_earned} VP")
+                    self.log(f"  Set Fashion ({self.moda_conjunto.name}): {times_completed}x = +{vp_earned} VP")
 
             # Score encargo (secret commission)
             if player.commission_card:
@@ -772,68 +926,86 @@ class ModernismeGame(Game):
                 if times_completed > 0:
                     vp_earned = times_completed * vp_per
                     total_objective_vp += vp_earned
-                    print(f"  Secret Commission ({encargo.name}): {times_completed}x = +{vp_earned} VP")
+                    self.log(f"  Secret Commission ({encargo.name}): {times_completed}x = +{vp_earned} VP")
                 else:
-                    print(f"  Secret Commission ({encargo.name}): not completed")
+                    self.log(f"  Secret Commission ({encargo.name}): not completed")
 
             if total_objective_vp > 0:
                 player.add_score(total_objective_vp)
 
 
-def play_modernisme_game():
-    """Play a complete game of Modernisme."""
-    print("=" * 60)
-    print("MODERNISME - Barcelona's Modernist Movement")
-    print("=" * 60)
+def play_modernisme_game(log_file: Optional[TextIO] = None, num_players: int = 4, strategy_classes: Optional[List] = None):
+    """
+    Play a complete game of Modernisme.
 
-    game = ModernismeGame()
-    game.setup_game(num_players=4)
+    Args:
+        log_file: Optional file to write game log to
+        num_players: Number of players (default 4)
+        strategy_classes: Optional list of strategy classes to use for each player.
+                         If None, strategies are assigned randomly.
+
+    Returns:
+        ModernismeGame: The completed game instance
+    """
+    game = ModernismeGame(log_file=log_file)
+
+    game.log("=" * 60)
+    game.log("MODERNISME - Barcelona's Modernist Movement")
+    game.log("=" * 60)
+
+    game.setup_game(num_players=num_players, strategy_classes=strategy_classes)
 
     # Play 4 seasons
+    turn_counter = 0
     for season in range(1, 5):
-        print(f"\n{'='*60}")
-        print(f"SEASON {season}")
-        print(f"First player: {game.players[game.first_player_idx].name}")
-        print('='*60)
+        game.log(f"\n{'='*60}")
+        game.log(f"SEASON {season}")
+        game.log(f"First player: {game.players[game.first_player_idx].name}")
+        game.log('='*60)
 
         # Each player takes a turn in counterclockwise order from first player
         for offset in range(len(game.players)):
             player_idx = (game.first_player_idx + offset) % len(game.players)
             player = game.players[player_idx]
 
-            print(f"\n--- {player.name}'s Turn ---")
+            turn_counter += 1
+            player.start_turn(season, turn_counter)
+
+            game.log(f"\n--- {player.name}'s Turn ---")
 
             # Show hand at start of turn
-            print("Hand at start of turn:")
+            game.log("Hand at start of turn:")
             hand_cards = [f"{card.name} ({card.get_property('vp', 0)} VP)" for card in player.hand.cards]
-            print(f"  {', '.join(hand_cards)}")
+            game.log(f"  {', '.join(hand_cards)}")
 
             # Phase 1: Talent Hunt
-            print("\nPhase 1: Talent Hunt")
+            game.log("\nPhase 1: Talent Hunt")
             game.play_talent_hunt_phase(player)
 
             # Phase 2: Placement
-            print("Phase 2: Commissioning Works")
-            print(f"  Active artists: {[a.name for a in player.active_artists]}")
+            game.log("Phase 2: Commissioning Works")
+            game.log(f"  Active artists: {[a.name for a in player.active_artists]}")
             player.strategy(game)
 
             # Show hand at end of turn
-            print(f"\nHand at end of turn ({len(player.hand)} cards):")
+            game.log(f"\nHand at end of turn ({len(player.hand)} cards):")
             hand_cards = [f"{card.name} ({card.get_property('vp', 0)} VP)" for card in player.hand.cards]
             if hand_cards:
-                print(f"  {', '.join(hand_cards)}")
+                game.log(f"  {', '.join(hand_cards)}")
             else:
-                print(f"  (empty)")
-            print(f"Score: {player.score} VP")
+                game.log(f"  (empty)")
+            game.log(f"Score: {player.score} VP")
+
+            player.end_turn()
 
         # End of season
         if season < 4:
             game.end_season()
 
     # Contextualize Relics before scoring
-    print("\n" + "=" * 60)
-    print("CONTEXTUALIZING RELICS")
-    print("=" * 60)
+    game.log("\n" + "=" * 60)
+    game.log("CONTEXTUALIZING RELICS")
+    game.log("=" * 60)
     for player in game.players:
         player.assign_reliquia_themes(game)
 
@@ -841,13 +1013,13 @@ def play_modernisme_game():
     game._score_objectives()
 
     # Final scoring - Room completion bonuses
-    print("\n" + "=" * 60)
-    print("ROOM COMPLETION BONUSES")
-    print("=" * 60)
+    game.log("\n" + "=" * 60)
+    game.log("ROOM COMPLETION BONUSES")
+    game.log("=" * 60)
 
     for player in game.players:
         board = game.get_board(f"{player.name}_board")
-        print(f"\n{player.name}:")
+        game.log(f"\n{player.name}:")
 
         # Check completed rooms
         rooms = {}
@@ -869,10 +1041,10 @@ def play_modernisme_game():
 
         for room_name, required_works in room_configs.items():
             works_in_room = rooms.get(room_name, [])
-            print(f"  {room_name}: {len(works_in_room)}/{required_works} works", end="")
+            room_status = f"  {room_name}: {len(works_in_room)}/{required_works} works"
 
             if len(works_in_room) == required_works:
-                print(" (COMPLETE)", end="")
+                room_status += " (COMPLETE)"
                 works = rooms[room_name]
 
                 # Check if all same type
@@ -893,31 +1065,31 @@ def play_modernisme_game():
                 if same_type:
                     bonus = required_works
                     player.add_score(bonus)
-                    print(f" → same type: +{bonus} VP")
+                    room_status += f" → same type: +{bonus} VP"
                 elif same_theme:
                     bonus = required_works
                     player.add_score(bonus)
-                    print(f" → same theme: +{bonus} VP")
-                else:
-                    print()
-            else:
-                print()
+                    room_status += f" → same theme: +{bonus} VP"
+
+            game.log(room_status)
 
     # Determine winner
-    print("\n" + "=" * 60)
-    print("FINAL SCORES")
-    print("=" * 60)
+    game.log("\n" + "=" * 60)
+    game.log("FINAL SCORES")
+    game.log("=" * 60)
 
     for player in game.players:
         board = game.get_board(f"{player.name}_board")
         total_works = sum(1 for slot in board.slots if not slot.is_empty())
-        print(f"{player.name}: {player.score} VP ({total_works} works placed)")
+        game.log(f"{player.name}: {player.score} VP ({total_works} works placed)")
 
     winner = max(game.players, key=lambda p: (p.score, -sum(1 for slot in game.get_board(f"{p.name}_board").slots if not slot.is_empty())))
 
-    print("\n" + "=" * 60)
-    print(f"🏆 WINNER: {winner.name} with {winner.score} VP!")
-    print("=" * 60)
+    game.log("\n" + "=" * 60)
+    game.log(f"🏆 WINNER: {winner.name} with {winner.score} VP!")
+    game.log("=" * 60)
+
+    return game
 
 
 if __name__ == "__main__":

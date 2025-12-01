@@ -55,3 +55,6 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Simulation logs - exclude game simulation output
+examples/modernisme_logs/

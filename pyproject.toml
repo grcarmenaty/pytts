@@ -1,0 +1,44 @@
+[project]
+name = "pytts"
+version = "0.1.0"
+description = "Python Tabletop Simulator - Modernisme game simulation and analysis"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "PyTTS Contributors"}
+]
+
+dependencies = [
+    "pandas>=2.0.0",
+    "numpy>=1.23.0",
+    "reportlab>=4.0.0",
+    "matplotlib>=3.7.0",
+    "seaborn>=0.13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+]
+
+[project.scripts]
+run-simulation = "examples.run_simulations:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_backend"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pytts*", "examples*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py39', 'py310', 'py311']
+
+[tool.isort]
+profile = "black"
+line_length = 100

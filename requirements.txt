@@ -1,0 +1,25 @@
+# Core dependencies for Modernisme simulation system
+# Compatible with uv (https://github.com/astral-sh/uv)
+
+# Data analysis and manipulation
+pandas>=2.0.0
+numpy>=1.23.0
+
+# PDF report generation
+reportlab>=4.0.0
+
+# Visualization and plotting
+matplotlib>=3.7.0
+seaborn>=0.13.0
+
+# Progress bars
+tqdm>=4.65.0
+
+# Additional dependencies pulled in automatically:
+# - pillow (for reportlab image support)
+# - python-dateutil (for pandas datetime)
+# - pytz (for pandas timezones)
+# - fonttools (for matplotlib fonts)
+# - contourpy (for matplotlib contour plots)
+# - cycler (for matplotlib color cycles)
+# - kiwisolver (for matplotlib layout)
