@@ -38,13 +38,14 @@ def ensure_logs_directory():
     return run_logs_dir
 
 
-def run_single_simulation(game_num: int, logs_dir: Path, strategy_classes: Tuple = None) -> str:
+def run_single_simulation(game_num: int, logs_dir: Path, num_players: int = 4, strategy_classes: Tuple = None) -> str:
     """
     Run a single game and save logs and data.
 
     Args:
         game_num: The game number (for unique naming)
         logs_dir: Directory to save logs
+        num_players: Number of players in the game
         strategy_classes: Tuple of strategy classes for each player
 
     Returns:
@@ -58,14 +59,14 @@ def run_single_simulation(game_num: int, logs_dir: Path, strategy_classes: Tuple
 
     # Generate unique timestamp-based filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    base_name = f"game_{game_num:06d}_{timestamp}"
+    base_name = f"game_{game_num:06d}_{num_players}p_{timestamp}"
 
     log_file_path = subdir / f"{base_name}.log"
     csv_file_path = subdir / f"{base_name}.csv"
 
     # Run game with log file
     with open(log_file_path, 'w') as log_file:
-        game = play_modernisme_game(log_file=log_file, num_players=4,
+        game = play_modernisme_game(log_file=log_file, num_players=num_players,
                                     strategy_classes=list(strategy_classes) if strategy_classes else None)
 
     # Save game data to CSV
@@ -85,19 +86,21 @@ def run_simulation_wrapper(args_tuple):
     return run_single_simulation(*args_tuple)
 
 
-def generate_strategy_combinations(num_players: int = 4) -> List[Tuple]:
+def generate_strategy_combinations() -> List[Tuple]:
     """
-    Generate all possible strategy combinations for the given number of players.
-
-    Args:
-        num_players: Number of players in each game
+    Generate all possible strategy combinations for 2, 3, and 4 players.
 
     Returns:
-        List of tuples, where each tuple contains strategy classes for one combination
+        List of tuples, where each tuple contains (num_players, strategy_classes)
     """
-    # Generate all possible combinations of strategies
-    # With 7 strategies and 4 players, this gives 7^4 = 2,401 combinations
-    combinations = list(product(ALL_STRATEGIES, repeat=num_players))
+    combinations = []
+
+    # Generate combinations for 2, 3, and 4 players
+    for num_players in [2, 3, 4]:
+        player_combos = list(product(ALL_STRATEGIES, repeat=num_players))
+        # Add num_players to each combination tuple
+        combinations.extend([(num_players, combo) for combo in player_combos])
+
     return combinations
 
 
@@ -105,7 +108,7 @@ def run_simulations(num_games: int = 100000, num_processes: int = None):
     """
     Run multiple game simulations using multiprocessing with balanced strategy combinations.
 
-    Each possible combination of strategies is run an equal number of times.
+    Each possible combination of strategies (for 2, 3, and 4 players) is run an equal number of times.
 
     Args:
         num_games: Target number of games to simulate (will be adjusted to ensure even distribution)
@@ -114,17 +117,25 @@ def run_simulations(num_games: int = 100000, num_processes: int = None):
     if num_processes is None:
         num_processes = cpu_count()
 
-    # Generate all strategy combinations
-    strategy_combinations = generate_strategy_combinations(num_players=4)
+    # Generate all strategy combinations for 2, 3, and 4 players
+    strategy_combinations = generate_strategy_combinations()
     num_combinations = len(strategy_combinations)
 
     # Calculate games per combination to reach or exceed target
     games_per_combination = max(1, (num_games + num_combinations - 1) // num_combinations)
     actual_num_games = games_per_combination * num_combinations
 
+    # Count by player count
+    player_counts = {2: 0, 3: 0, 4: 0}
+    for num_players, _ in strategy_combinations:
+        player_counts[num_players] += games_per_combination
+
     print(f"Starting balanced simulation with {actual_num_games:,} games...")
     print(f"  - {num_combinations:,} unique strategy combinations")
     print(f"  - {games_per_combination:,} games per combination")
+    print(f"  - 2-player games: {player_counts[2]:,}")
+    print(f"  - 3-player games: {player_counts[3]:,}")
+    print(f"  - 4-player games: {player_counts[4]:,}")
     print(f"Using {num_processes} parallel processes")
     print(f"Timestamp: {datetime.now()}")
 
@@ -137,8 +148,8 @@ def run_simulations(num_games: int = 100000, num_processes: int = None):
     args = []
     game_num = 1
     for _ in range(games_per_combination):
-        for strategy_combo in strategy_combinations:
-            args.append((game_num, logs_dir, strategy_combo))
+        for num_players, strategy_combo in strategy_combinations:
+            args.append((game_num, logs_dir, num_players, strategy_combo))
             game_num += 1
 
     # Run simulations in parallel with tqdm progress bar

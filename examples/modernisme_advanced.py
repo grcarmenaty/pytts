@@ -140,10 +140,16 @@ class ModernismeAdvancedPlayer(Player):
                 if room_name not in self.room_tiles:
                     available_rooms.add(room_name)
 
-        # Consider acquiring room tiles if needed and affordable
-        if available_rooms and len(self.hand.cards) >= 3:
-            # Try to acquire one room tile
-            if self._try_acquire_room_tile(game, list(available_rooms)[0]):
+        # Consider acquiring room tiles if needed - use strategy to decide
+        if available_rooms:
+            room_to_acquire = list(available_rooms)[0]
+            should_acquire = False
+            if self.ai_strategy:
+                should_acquire = self.ai_strategy.should_acquire_room_tile(self, game, room_to_acquire)
+            elif len(self.hand.cards) >= 3:
+                should_acquire = True
+
+            if should_acquire and self._try_acquire_room_tile(game, room_to_acquire):
                 game.log(f"  Acquired room tile")
 
         for _ in range(works_to_commission):
@@ -322,6 +328,7 @@ class ModernismeAdvancedPlayer(Player):
                     # Check for milestone
                     if self.check_milestone(game):
                         game.log(f"      {self.name} passed a VP milestone!")
+                        game.handle_milestone_reward(self)
 
                     return True
 
@@ -586,31 +593,64 @@ class ModernismeAdvancedGame(Game):
         # Advanced mode: Each player picks an advantage card
         self.log(f"\nPlayers selecting advantage cards:")
         for player in self.players:
-            # AI picks randomly for now
             if self.available_advantages:
-                card = random.choice(self.available_advantages)
+                self.log(f"  {player.name}'s turn - Advantage Card Market:")
+                for adv in self.available_advantages:
+                    adv_type = adv.get_property("advantage_type")
+                    description = adv.get_property("description", "")
+                    self.log(f"    - {adv.name}: {description}")
+
+                # Use strategy to select card
+                if player.ai_strategy:
+                    card = player.ai_strategy.select_advantage_card(player, self, self.available_advantages)
+                else:
+                    card = random.choice(self.available_advantages)
+
                 self.available_advantages.remove(card)
                 player.advantage_cards.append(card)
-                self.log(f"  {player.name} selected {card.name}")
+                self.log(f"  → Selected: {card.name}")
+
                 # Replenish
                 if self.advantage_deck:
-                    self.available_advantages.append(self.advantage_deck.pop())
+                    new_card = self.advantage_deck.pop()
+                    self.available_advantages.append(new_card)
+                    self.log(f"  Market replenished with {new_card.name}")
 
         # Advanced mode: Each player picks a room tile
-        self.log(f"\nPlayers selecting room tiles:")
+        self.log(f"\nPlayers selecting initial room tiles:")
         for player in self.players:
             if self.available_room_tiles:
-                tile = random.choice(self.available_room_tiles)
+                self.log(f"  {player.name}'s turn - Room Tile Market:")
+                for tile in self.available_room_tiles:
+                    tile_type = tile.get_property("tile_type")
+                    is_theme = tile.get_property("is_theme_tile", False)
+                    tile_category = "Theme" if is_theme else "Type"
+                    self.log(f"    - {tile.name} ({tile_category}: {tile_type.value})")
+
+                # Use strategy to select tile
+                if player.ai_strategy:
+                    tile = player.ai_strategy.select_room_tile(player, self, self.available_room_tiles)
+                else:
+                    tile = random.choice(self.available_room_tiles)
+
                 self.available_room_tiles.remove(tile)
+
                 # AI picks randomly from available rooms
                 available_rooms = ["Room 1 (3 slots)", "Room 2 (4 slots)", "Room 3 (3 slots)",
                                  "Room 4 (2 slots)", "Room 5 (3 slots)"]
                 room = random.choice([r for r in available_rooms if r not in player.room_tiles])
                 player.room_tiles[room] = tile
-                self.log(f"  {player.name} placed tile for {room}")
+
+                tile_type = tile.get_property("tile_type")
+                is_theme = tile.get_property("is_theme_tile", False)
+                tile_category = "Theme" if is_theme else "Type"
+                self.log(f"  → Selected: {tile.name} ({tile_category}: {tile_type.value}) for {room}")
+
                 # Replenish
                 if self.room_tile_bag:
-                    self.available_room_tiles.append(self.room_tile_bag.pop())
+                    new_tile = self.room_tile_bag.pop()
+                    self.available_room_tiles.append(new_tile)
+                    self.log(f"  Market replenished with {new_tile.name}")
 
         self.log(f"\nGame setup complete with {num_players} players!")
         self.log(f"Advanced mode: 5 work cards, room tiles, advantage cards")
@@ -826,17 +866,68 @@ class ModernismeAdvancedGame(Game):
 
     def pick_room_tile_for_player(self, player: ModernismeAdvancedPlayer, room_name: str) -> Optional[Card]:
         """Pick a room tile for a player."""
+        # Log available room tiles
         if self.available_room_tiles:
-            tile = random.choice(self.available_room_tiles)
+            self.log(f"    Room Tile Market:")
+            for tile in self.available_room_tiles:
+                tile_type = tile.get_property("tile_type")
+                is_theme = tile.get_property("is_theme_tile", False)
+                tile_category = "Theme" if is_theme else "Type"
+                self.log(f"      - {tile.name} ({tile_category}: {tile_type.value})")
+
+            # Use strategy to select tile
+            if player.ai_strategy:
+                tile = player.ai_strategy.select_room_tile(player, self, self.available_room_tiles)
+            else:
+                tile = random.choice(self.available_room_tiles)
+
             self.available_room_tiles.remove(tile)
+
+            tile_type = tile.get_property("tile_type")
+            is_theme = tile.get_property("is_theme_tile", False)
+            tile_category = "Theme" if is_theme else "Type"
+            self.log(f"    Selected: {tile.name} ({tile_category}: {tile_type.value}) for {room_name}")
+
             # Replenish
             if self.room_tile_bag:
-                self.available_room_tiles.append(self.room_tile_bag.pop())
+                new_tile = self.room_tile_bag.pop()
+                self.available_room_tiles.append(new_tile)
+                self.log(f"    Market replenished with {new_tile.name}")
+
             return tile
         elif self.room_tile_bag:
             tile = self.room_tile_bag.pop()
+            tile_type = tile.get_property("tile_type")
+            is_theme = tile.get_property("is_theme_tile", False)
+            tile_category = "Theme" if is_theme else "Type"
+            self.log(f"    Selected from bag: {tile.name} ({tile_category}: {tile_type.value}) for {room_name}")
             return tile
         return None
+
+    def handle_milestone_reward(self, player: ModernismeAdvancedPlayer) -> None:
+        """Handle giving advantage card when player reaches milestone."""
+        if self.available_advantages:
+            self.log(f"      Advantage Card Market:")
+            for adv in self.available_advantages:
+                adv_type = adv.get_property("advantage_type")
+                description = adv.get_property("description", "")
+                self.log(f"        - {adv.name}: {description}")
+
+            # Use strategy to select card
+            if player.ai_strategy:
+                card = player.ai_strategy.select_advantage_card(player, self, self.available_advantages)
+            else:
+                card = random.choice(self.available_advantages)
+
+            self.available_advantages.remove(card)
+            player.advantage_cards.append(card)
+            self.log(f"      → Selected advantage card: {card.name}")
+
+            # Replenish
+            if self.advantage_deck:
+                new_card = self.advantage_deck.pop()
+                self.available_advantages.append(new_card)
+                self.log(f"      Market replenished with {new_card.name}")
 
     def play_talent_hunt_phase(self, player: ModernismeAdvancedPlayer) -> None:
         """Execute the talent hunt phase."""

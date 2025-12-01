@@ -39,6 +39,70 @@ class Strategy(ABC):
         """
         pass
 
+    def select_room_tile(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        available_tiles: List['Card']
+    ) -> Optional['Card']:
+        """
+        Select which room tile to take from the available tiles.
+
+        Args:
+            player: The player making the decision
+            game: The game instance
+            available_tiles: List of available room tiles
+
+        Returns:
+            The room tile to select, or None if none should be selected
+        """
+        # Default: random selection
+        if not available_tiles:
+            return None
+        return random.choice(available_tiles)
+
+    def select_advantage_card(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        available_cards: List['Card']
+    ) -> Optional['Card']:
+        """
+        Select which advantage card to take from the available cards.
+
+        Args:
+            player: The player making the decision
+            game: The game instance
+            available_cards: List of available advantage cards
+
+        Returns:
+            The advantage card to select, or None if none should be selected
+        """
+        # Default: random selection
+        if not available_cards:
+            return None
+        return random.choice(available_cards)
+
+    def should_acquire_room_tile(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        room_name: str
+    ) -> bool:
+        """
+        Decide whether to acquire a room tile for 2 VP.
+
+        Args:
+            player: The player making the decision
+            game: The game instance
+            room_name: The room that needs a tile
+
+        Returns:
+            True if should acquire the tile, False otherwise
+        """
+        # Default: acquire if we have enough cards and need it
+        return len(player.hand.cards) >= 3
+
     def get_commissionable_works(
         self,
         player: 'ModernismePlayer'
