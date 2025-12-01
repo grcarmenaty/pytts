@@ -635,10 +635,18 @@ class ModernismeAdvancedGame(Game):
 
                 self.available_room_tiles.remove(tile)
 
-                # AI picks randomly from available rooms
-                available_rooms = ["Room 1 (3 slots)", "Room 2 (4 slots)", "Room 3 (3 slots)",
-                                 "Room 4 (2 slots)", "Room 5 (3 slots)"]
-                room = random.choice([r for r in available_rooms if r not in player.room_tiles])
+                # Use strategy to select which room to assign tile to
+                all_rooms = ["Room 1 (3 slots)", "Room 2 (4 slots)", "Room 3 (3 slots)",
+                           "Room 4 (2 slots)", "Room 5 (3 slots)"]
+                available_rooms_list = [r for r in all_rooms if r not in player.room_tiles]
+
+                if player.ai_strategy:
+                    room = player.ai_strategy.select_room_for_tile(player, self, tile, available_rooms_list)
+                    if not room:  # Strategy returned None, pick randomly
+                        room = random.choice(available_rooms_list)
+                else:
+                    room = random.choice(available_rooms_list)
+
                 player.room_tiles[room] = tile
 
                 tile_type = tile.get_property("tile_type")

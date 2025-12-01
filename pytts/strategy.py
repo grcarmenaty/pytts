@@ -103,6 +103,62 @@ class Strategy(ABC):
         # Default: acquire if we have enough cards and need it
         return len(player.hand.cards) >= 3
 
+    def select_room_for_tile(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        tile: 'Card',
+        available_rooms: List[str]
+    ) -> Optional[str]:
+        """
+        Select which room to assign a newly acquired tile to.
+
+        Args:
+            player: The player making the decision
+            game: The game instance
+            tile: The room tile being placed
+            available_rooms: List of room names that don't have tiles yet
+
+        Returns:
+            The room name to assign the tile to, or None for random
+        """
+        # Default: prefer smaller rooms (easier to complete)
+        if not available_rooms:
+            return None
+
+        # Parse room sizes from names like "Room 1 (3 slots)"
+        room_sizes = []
+        for room in available_rooms:
+            try:
+                size = int(room.split('(')[1].split()[0])
+                room_sizes.append((room, size))
+            except:
+                room_sizes.append((room, 999))  # Unknown size, deprioritize
+
+        # Sort by size (smallest first)
+        room_sizes.sort(key=lambda x: x[1])
+        return room_sizes[0][0]
+
+    def should_use_advantage_card(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        phase: str
+    ) -> Optional['Card']:
+        """
+        Decide whether to use an advantage card at this moment.
+
+        Args:
+            player: The player making the decision
+            game: The game instance
+            phase: Current phase ('before_turn', 'during_turn', 'after_commission')
+
+        Returns:
+            The advantage card to use, or None if no card should be used
+        """
+        # Default: don't use advantage cards automatically (too complex for default)
+        return None
+
     def get_commissionable_works(
         self,
         player: 'ModernismePlayer'
@@ -349,6 +405,96 @@ class RoomThemeTypeStrategy(Strategy):
 
         return best_work if best_work else random.choice(commissionable)
 
+    def select_room_tile(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        available_tiles: List['Card']
+    ) -> Optional['Card']:
+        """Select room tile that best supports room completion strategy."""
+        if not available_tiles:
+            return None
+
+        # Prefer tiles that match our current work distribution
+        board = game.get_board(f"{player.name}_board")
+        if not board:
+            return random.choice(available_tiles)
+
+        # Count works by type and theme
+        type_counts = {}
+        theme_counts = {}
+        for slot in board.slots:
+            if not slot.is_empty():
+                work = slot.get_cards()[0]
+                art_type = work.get_property("art_type")
+                theme = work.get_property("theme")
+                type_counts[art_type] = type_counts.get(art_type, 0) + 1
+                if theme and hasattr(theme, 'value') and theme.value != "No theme":
+                    theme_counts[theme] = theme_counts.get(theme, 0) + 1
+
+        # Score each tile
+        best_tile = None
+        best_score = -1
+
+        for tile in available_tiles:
+            tile_type = tile.get_property("tile_type")
+            is_theme = tile.get_property("is_theme_tile", False)
+            score = 0
+
+            if is_theme:
+                # Theme tile - check if we have works with this theme
+                for theme, count in theme_counts.items():
+                    if hasattr(theme, 'value') and tile_type.value == theme.value:
+                        score = count * 2  # Prefer themes we already have
+            else:
+                # Type tile - check if we have works with this type
+                for art_type, count in type_counts.items():
+                    if hasattr(art_type, 'value') and tile_type.value == art_type.value:
+                        score = count * 2
+
+            if score > best_score:
+                best_score = score
+                best_tile = tile
+
+        return best_tile if best_tile else random.choice(available_tiles)
+
+    def select_advantage_card(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        available_cards: List['Card']
+    ) -> Optional['Card']:
+        """Select advantage card that helps with room completion."""
+        if not available_cards:
+            return None
+
+        # Prefer cards that help rearrange or refresh rooms
+        from examples.modernisme_advanced import AdvantageCardType
+
+        priority_order = [
+            AdvantageCardType.REMODELING,  # Move works to optimize rooms
+            AdvantageCardType.REFORM,      # Refresh room tiles
+            AdvantageCardType.PLAN_CHANGE, # Return work to hand if misplaced
+            AdvantageCardType.PATRONAGE,   # Change artists for flexibility
+        ]
+
+        for adv_type in priority_order:
+            for card in available_cards:
+                if card.get_property("advantage_type") == adv_type:
+                    return card
+
+        return random.choice(available_cards)
+
+    def should_acquire_room_tile(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        room_name: str
+    ) -> bool:
+        """Acquire room tiles eagerly to enable room bonuses."""
+        # Be aggressive about getting room tiles since they're core to strategy
+        return len(player.hand.cards) >= 3
+
     def _analyze_rooms(self, board) -> dict:
         """Analyze the current state of all rooms."""
         from examples.modernisme_game import Theme
@@ -463,6 +609,68 @@ class MaxWorksStrategy(Strategy):
 
         return best_work
 
+    def select_room_tile(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        available_tiles: List['Card']
+    ) -> Optional['Card']:
+        """Select type tiles for common art types to maximize placement options."""
+        if not available_tiles:
+            return None
+
+        # Prefer type tiles over theme tiles (more flexible)
+        type_tiles = [t for t in available_tiles if not t.get_property("is_theme_tile", False)]
+        if type_tiles:
+            # Prefer common types (Crafts, Painting, Sculpture over Relic)
+            from examples.modernisme_advanced import RoomTileType
+            preferred_types = [RoomTileType.CRAFTS, RoomTileType.PAINTING, RoomTileType.SCULPTURE]
+
+            for pref_type in preferred_types:
+                for tile in type_tiles:
+                    if tile.get_property("tile_type") == pref_type:
+                        return tile
+
+            return type_tiles[0]
+
+        # If only theme tiles available, pick randomly
+        return random.choice(available_tiles)
+
+    def select_advantage_card(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        available_cards: List['Card']
+    ) -> Optional['Card']:
+        """Select cards that help place more works."""
+        if not available_cards:
+            return None
+
+        from examples.modernisme_advanced import AdvantageCardType
+
+        priority_order = [
+            AdvantageCardType.UNIVERSAL_EXHIBITION,  # Redraw hand for better options
+            AdvantageCardType.PATRONAGE,            # Change artists to commission more
+            AdvantageCardType.REFORM,               # More room tiles = more placement options
+        ]
+
+        for adv_type in priority_order:
+            for card in available_cards:
+                if card.get_property("advantage_type") == adv_type:
+                    return card
+
+        return random.choice(available_cards)
+
+    def should_acquire_room_tile(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        room_name: str
+    ) -> bool:
+        """Acquire room tiles to unlock more placement spaces."""
+        # Very eager to get room tiles (enables more placements)
+        return len(player.hand.cards) >= 3
+
 
 class HighValueWorksStrategy(Strategy):
     """Strategy focusing on playing high value works."""
@@ -505,6 +713,65 @@ class HighValueWorksStrategy(Strategy):
                 best_work = work
 
         return best_work
+
+    def select_room_tile(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        available_tiles: List['Card']
+    ) -> Optional['Card']:
+        """Prefer type tiles for high-VP art types."""
+        if not available_tiles:
+            return None
+
+        # High VP works are often Relics (5 VP) or high-value regular works (3-4 VP)
+        # Prefer type tiles, especially for common high-value types
+        type_tiles = [t for t in available_tiles if not t.get_property("is_theme_tile", False)]
+        if type_tiles:
+            from examples.modernisme_advanced import RoomTileType
+            # Relic tiles are good (all relics are 5 VP)
+            for tile in type_tiles:
+                if tile.get_property("tile_type") == RoomTileType.RELIC:
+                    return tile
+            # Otherwise any type tile
+            return type_tiles[0]
+
+        return random.choice(available_tiles)
+
+    def select_advantage_card(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        available_cards: List['Card']
+    ) -> Optional['Card']:
+        """Select cards that help place high-value works."""
+        if not available_cards:
+            return None
+
+        from examples.modernisme_advanced import AdvantageCardType
+
+        priority_order = [
+            AdvantageCardType.PATRONAGE,     # Change artists to get high-VP matches
+            AdvantageCardType.REMODELING,    # Optimize placement for room bonuses
+            AdvantageCardType.UNIVERSAL_EXHIBITION,  # Redraw for better cards
+        ]
+
+        for adv_type in priority_order:
+            for card in available_cards:
+                if card.get_property("advantage_type") == adv_type:
+                    return card
+
+        return random.choice(available_cards)
+
+    def should_acquire_room_tile(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        room_name: str
+    ) -> bool:
+        """Moderate on room tile acquisition (focus resources on high-VP works)."""
+        # Less eager than other strategies - save VP for expensive works
+        return len(player.hand.cards) >= 4
 
 
 class ModaTemaStrategy(Strategy):
@@ -571,6 +838,67 @@ class ModaTemaStrategy(Strategy):
                     best_work = work
 
             return best_work
+
+    def select_room_tile(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        available_tiles: List['Card']
+    ) -> Optional['Card']:
+        """Prefer theme tiles matching moda tema."""
+        if not available_tiles:
+            return None
+
+        # Strongly prefer theme tile matching the moda tema
+        if hasattr(game, 'moda_tema') and game.moda_tema:
+            required_theme = game.moda_tema.get_property("required_theme")
+            if required_theme and hasattr(required_theme, 'value'):
+                for tile in available_tiles:
+                    if tile.get_property("is_theme_tile", False):
+                        tile_type = tile.get_property("tile_type")
+                        if hasattr(tile_type, 'value') and tile_type.value == required_theme.value:
+                            return tile
+
+        # Otherwise prefer any theme tile
+        theme_tiles = [t for t in available_tiles if t.get_property("is_theme_tile", False)]
+        if theme_tiles:
+            return theme_tiles[0]
+
+        return random.choice(available_tiles)
+
+    def select_advantage_card(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        available_cards: List['Card']
+    ) -> Optional['Card']:
+        """Select cards that help collect theme works."""
+        if not available_cards:
+            return None
+
+        from examples.modernisme_advanced import AdvantageCardType
+
+        priority_order = [
+            AdvantageCardType.UNIVERSAL_EXHIBITION,  # Redraw to find more theme matches
+            AdvantageCardType.PATRONAGE,            # Change artists for theme matches
+            AdvantageCardType.ESPIONAGE,            # Steal theme cards from opponents
+        ]
+
+        for adv_type in priority_order:
+            for card in available_cards:
+                if card.get_property("advantage_type") == adv_type:
+                    return card
+
+        return random.choice(available_cards)
+
+    def should_acquire_room_tile(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        room_name: str
+    ) -> bool:
+        """Moderate acquisition - focus on getting theme-matching tiles."""
+        return len(player.hand.cards) >= 3
 
 
 class ModaConjuntoStrategy(Strategy):
@@ -671,6 +999,69 @@ class ModaConjuntoStrategy(Strategy):
                     best_work = work
 
             return best_work
+
+    def select_room_tile(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        available_tiles: List['Card']
+    ) -> Optional['Card']:
+        """Prefer theme tiles for required themes in moda conjunto."""
+        if not available_tiles:
+            return None
+
+        # Prefer theme tiles for the required themes
+        if hasattr(game, 'moda_conjunto') and game.moda_conjunto:
+            required_themes = game.moda_conjunto.get_property("required_themes")
+            if required_themes:
+                for tile in available_tiles:
+                    if tile.get_property("is_theme_tile", False):
+                        tile_type = tile.get_property("tile_type")
+                        for req_theme in required_themes:
+                            if hasattr(tile_type, 'value') and hasattr(req_theme, 'value'):
+                                if tile_type.value == req_theme.value:
+                                    return tile
+
+        # Otherwise prefer any theme tile
+        theme_tiles = [t for t in available_tiles if t.get_property("is_theme_tile", False)]
+        if theme_tiles:
+            return theme_tiles[0]
+
+        return random.choice(available_tiles)
+
+    def select_advantage_card(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        available_cards: List['Card']
+    ) -> Optional['Card']:
+        """Select cards that help create adjacent sets."""
+        if not available_cards:
+            return None
+
+        from examples.modernisme_advanced import AdvantageCardType
+
+        priority_order = [
+            AdvantageCardType.REMODELING,            # Move works to create adjacencies
+            AdvantageCardType.UNIVERSAL_EXHIBITION,  # Redraw for required themes
+            AdvantageCardType.PATRONAGE,            # Change artists for theme matches
+        ]
+
+        for adv_type in priority_order:
+            for card in available_cards:
+                if card.get_property("advantage_type") == adv_type:
+                    return card
+
+        return random.choice(available_cards)
+
+    def should_acquire_room_tile(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        room_name: str
+    ) -> bool:
+        """Moderate acquisition."""
+        return len(player.hand.cards) >= 3
 
 
 class EncargoStrategy(Strategy):
@@ -802,6 +1193,78 @@ class EncargoStrategy(Strategy):
 
         return best_work
 
+    def select_room_tile(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        available_tiles: List['Card']
+    ) -> Optional['Card']:
+        """Select type tiles matching commission requirements."""
+        if not available_tiles:
+            return None
+
+        # Prefer type tiles for required types in commission
+        if player.commission_card:
+            encargo = player.commission_card
+            obj_type = encargo.get_property("objective_type")
+
+            # Get required types
+            required_types = []
+            if obj_type == "type_count":
+                required_types = [encargo.get_property("required_type")]
+            elif obj_type == "mixed":
+                required_types = encargo.get_property("required_types", [])
+
+            # Find tiles matching required types
+            for req_type in required_types:
+                for tile in available_tiles:
+                    if not tile.get_property("is_theme_tile", False):
+                        tile_type = tile.get_property("tile_type")
+                        if hasattr(tile_type, 'value') and hasattr(req_type, 'value'):
+                            if tile_type.value == req_type.value:
+                                return tile
+
+        # Otherwise prefer any type tile
+        type_tiles = [t for t in available_tiles if not t.get_property("is_theme_tile", False)]
+        if type_tiles:
+            return type_tiles[0]
+
+        return random.choice(available_tiles)
+
+    def select_advantage_card(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        available_cards: List['Card']
+    ) -> Optional['Card']:
+        """Select cards that help complete commission."""
+        if not available_cards:
+            return None
+
+        from examples.modernisme_advanced import AdvantageCardType
+
+        priority_order = [
+            AdvantageCardType.PATRONAGE,            # Change artists to match commission needs
+            AdvantageCardType.UNIVERSAL_EXHIBITION,  # Redraw for required types
+            AdvantageCardType.ESPIONAGE,            # Steal needed cards
+        ]
+
+        for adv_type in priority_order:
+            for card in available_cards:
+                if card.get_property("advantage_type") == adv_type:
+                    return card
+
+        return random.choice(available_cards)
+
+    def should_acquire_room_tile(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        room_name: str
+    ) -> bool:
+        """Moderate acquisition."""
+        return len(player.hand.cards) >= 3
+
 
 class RandomStrategy(Strategy):
     """Random strategy - selects works randomly as a baseline for comparison."""
@@ -820,6 +1283,22 @@ class RandomStrategy(Strategy):
             return None
 
         return random.choice(commissionable)
+
+    def should_use_advantage_card(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        phase: str
+    ) -> Optional['Card']:
+        """Use advantage cards randomly."""
+        if not player.advantage_cards:
+            return None
+
+        # 20% chance to use a card at any given opportunity
+        if random.random() < 0.2:
+            return random.choice(player.advantage_cards)
+
+        return None
 
 
 # List of all available strategies
