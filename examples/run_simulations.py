@@ -653,7 +653,9 @@ def main():
         print("=" * 70)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        pdf_path = logs_dir / f"simulation_report_{timestamp}.pdf"
+        # Save PDF to parent modernisme_logs folder (not the run subfolder which is deleted)
+        parent_logs_dir = Path(aggregated_csv).parent
+        pdf_path = parent_logs_dir / f"simulation_report_{timestamp}.pdf"
 
         try:
             generate_pdf_report(aggregated_csv, str(pdf_path))
