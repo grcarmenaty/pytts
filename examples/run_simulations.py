@@ -25,10 +25,16 @@ import time
 
 
 def ensure_logs_directory():
-    """Create the modernisme_logs directory if it doesn't exist."""
-    logs_dir = Path(__file__).parent / "modernisme_logs"
-    logs_dir.mkdir(exist_ok=True)
-    return logs_dir
+    """Create the modernisme_logs directory with timestamped subfolder."""
+    base_logs_dir = Path(__file__).parent / "modernisme_logs"
+    base_logs_dir.mkdir(exist_ok=True)
+
+    # Create timestamped subfolder for this simulation run
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_logs_dir = base_logs_dir / f"run_{timestamp}"
+    run_logs_dir.mkdir(exist_ok=True)
+
+    return run_logs_dir
 
 
 def run_single_simulation(game_num: int, logs_dir: Path, strategy_classes: Tuple = None) -> str:
@@ -201,9 +207,10 @@ def aggregate_csvs(logs_dir: Path) -> str:
 
     df = pd.concat(df_list, ignore_index=True)
 
-    # Save aggregated CSV
+    # Save aggregated CSV to parent modernisme_logs folder
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    aggregated_file = logs_dir / f"all_games_{timestamp}.csv"
+    parent_dir = logs_dir.parent
+    aggregated_file = parent_dir / f"all_games_{timestamp}.csv"
 
     print(f"Saving aggregated CSV with {len(df):,} games...")
     df.to_csv(aggregated_file, index=False)
@@ -217,53 +224,49 @@ def aggregate_csvs(logs_dir: Path) -> str:
     print(f"  - {file_size_mb:.1f} MB")
     print(f"  - Completed in {elapsed:.1f} seconds")
 
+    # Delete individual CSV and log files
+    print("\nCleaning up individual files...")
+    deleted_count = 0
+    log_files = list(logs_dir.glob("game_*.log"))
+    all_files = csv_files + log_files
+
+    for file_path in all_files:
+        try:
+            file_path.unlink()
+            deleted_count += 1
+        except Exception as e:
+            print(f"Warning: Could not delete {file_path}: {e}")
+
+    print(f"✓ Deleted {deleted_count:,} individual files ({len(csv_files):,} CSVs + {len(log_files):,} logs)")
+
+    # Remove the now-empty run subfolder
+    try:
+        logs_dir.rmdir()
+        print(f"✓ Removed empty subfolder: {logs_dir.name}")
+    except Exception as e:
+        print(f"Note: Could not remove subfolder (may not be empty): {e}")
+
     return str(aggregated_file)
 
 
-def analyze_results(logs_dir: Path):
+def analyze_results(csv_file_path: str):
     """
-    Analyze all CSV files and compute statistics.
+    Analyze aggregated CSV file and compute statistics.
 
     Args:
-        logs_dir: Directory containing CSV files
+        csv_file_path: Path to aggregated CSV file
     """
     print("\n" + "=" * 70)
     print("ANALYZING SIMULATION RESULTS")
     print("=" * 70)
 
-    # Read all CSV files
-    csv_files = list(logs_dir.glob("game_*.csv"))
-    print(f"\nFound {len(csv_files):,} game result files")
-
-    if not csv_files:
-        print("No game results found!")
-        return
-
-    # Load all data into a DataFrame
-    print("Loading data...")
-    df_list = []
-    skipped = 0
-    batch_size = 10000
-    for i in range(0, len(csv_files), batch_size):
-        batch = csv_files[i:i+batch_size]
-        if (i + len(batch)) % batch_size == 0 or i + len(batch) == len(csv_files):
-            print(f"  Loading batch {i//batch_size + 1}/{(len(csv_files) + batch_size - 1)//batch_size}...")
-        for csv_file in batch:
-            try:
-                df = pd.read_csv(csv_file)
-                if not df.empty:
-                    df_list.append(df)
-                else:
-                    skipped += 1
-            except (pd.errors.EmptyDataError, pd.errors.ParserError):
-                skipped += 1
-                continue
-
-    if skipped > 0:
-        print(f"  Skipped {skipped:,} empty or corrupted CSV files")
-
-    df = pd.concat(df_list, ignore_index=True)
+    # Load aggregated CSV
+    print(f"\nLoading aggregated data from: {Path(csv_file_path).name}")
+    df = pd.read_csv(csv_file_path)
     print(f"Loaded {len(df):,} games with {len(df.columns)} columns")
+
+    # Get parent directory for saving summary
+    logs_dir = Path(csv_file_path).parent
 
     # Strategy win counts
     print("\n" + "=" * 70)
@@ -578,8 +581,9 @@ def main():
     # Aggregate all CSVs into one
     aggregated_csv = aggregate_csvs(logs_dir)
 
-    # Analyze results
-    analyze_results(logs_dir)
+    # Analyze results from aggregated CSV
+    if aggregated_csv:
+        analyze_results(aggregated_csv)
 
     # Generate PDF report
     if aggregated_csv:
