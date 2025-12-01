@@ -962,7 +962,9 @@ class SimulationReport:
             plt.tight_layout()
 
             # Save with high DPI for readability
-            img_path = f"{self.temp_dir}/complete_matchup_{my_strategy.replace(' ', '_')}.png"
+            # Sanitize filename by removing problematic characters
+            safe_name = my_strategy.replace(' ', '_').replace('/', '_').replace('\\', '_')
+            img_path = f"{self.temp_dir}/complete_matchup_{safe_name}.png"
             plt.savefig(img_path, dpi=200, bbox_inches='tight')
             plt.close()
 
