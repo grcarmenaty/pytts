@@ -1062,14 +1062,40 @@ def play_modernisme_game(log_file: Optional[TextIO] = None, num_players: int = 4
 
                 # Bonuses are NOT cumulative - only count one per room
                 # Prefer same type bonus if both conditions are met
+                bonus = 0
+                bonus_type = ""
+
                 if same_type:
                     bonus = required_works
+                    bonus_type = "same type"
+
+                    # Check if all different themes for doubling
+                    unique_themes = set()
+                    for w in works:
+                        if w.get_property("art_type") == ArtType.RELIC and w in player.reliquia_themes:
+                            unique_themes.add(player.reliquia_themes[w])
+                        elif w.get_property("theme") != Theme.NONE:
+                            unique_themes.add(w.get_property("theme"))
+
+                    if len(unique_themes) == required_works:
+                        bonus *= 2
+                        bonus_type += " (DOUBLED - all different themes)"
+
                     player.add_score(bonus)
-                    room_status += f" → same type: +{bonus} VP"
+                    room_status += f" → {bonus_type}: +{bonus} VP"
+
                 elif same_theme:
                     bonus = required_works
+                    bonus_type = "same theme"
+
+                    # Check if all different types for doubling
+                    unique_types = set(types)
+                    if len(unique_types) == required_works:
+                        bonus *= 2
+                        bonus_type += " (DOUBLED - all different types)"
+
                     player.add_score(bonus)
-                    room_status += f" → same theme: +{bonus} VP"
+                    room_status += f" → {bonus_type}: +{bonus} VP"
 
             game.log(room_status)
 
