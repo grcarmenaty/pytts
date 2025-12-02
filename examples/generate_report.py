@@ -52,7 +52,8 @@ class SimulationReport:
         self.story = []
 
     def _setup_custom_styles(self):
-        """Create custom paragraph styles."""
+        """Create custom paragraph styles and unified plot styling."""
+        # Paragraph styles
         self.styles.add(ParagraphStyle(
             name='CustomTitle',
             parent=self.styles['Heading1'],
@@ -70,6 +71,14 @@ class SimulationReport:
             spaceBefore=12
         ))
         self.styles.add(ParagraphStyle(
+            name='SubsectionTitle',
+            parent=self.styles['Heading3'],
+            fontSize=13,
+            textColor=colors.HexColor('#2c5f2d'),
+            spaceAfter=8,
+            spaceBefore=8
+        ))
+        self.styles.add(ParagraphStyle(
             name='Insight',
             parent=self.styles['BodyText'],
             fontSize=11,
@@ -77,6 +86,48 @@ class SimulationReport:
             leftIndent=20,
             bulletIndent=10
         ))
+        self.styles.add(ParagraphStyle(
+            name='PlotExplanation',
+            parent=self.styles['BodyText'],
+            fontSize=10,
+            textColor=colors.HexColor('#333333'),
+            leftIndent=10,
+            spaceAfter=8,
+            leading=14
+        ))
+
+        # Unified plot styling parameters
+        self.plot_style = {
+            'figsize_standard': (10, 5),
+            'figsize_wide': (10, 6),
+            'figsize_small': (8, 4),
+            'dpi': 150,
+            'title_fontsize': 12,
+            'label_fontsize': 10,
+            'tick_fontsize': 9,
+            'legend_fontsize': 9,
+        }
+
+        # Unified color scheme
+        self.colors = {
+            'primary': '#1f4788',      # Dark blue
+            'success': '#2c5f2d',      # Green
+            'warning': '#8b4513',      # Brown
+            'danger': '#8b0000',       # Dark red
+            'highlight': '#ff8c00',    # Orange
+            'secondary': '#4169e1',    # Royal blue
+            'crafts': '#8b4513',
+            'painting': '#1f4788',
+            'sculpture': '#2c5f2d',
+            'relic': '#8b0000',
+            'nature': '#2c5f2d',
+            'mythology': '#4169e1',
+            'society': '#8b4513',
+            'orientalism': '#ff8c00',
+            'player2': '#1f4788',
+            'player3': '#2c5f2d',
+            'player4': '#8b4513',
+        }
 
     def generate(self):
         """Generate the complete PDF report."""
@@ -91,6 +142,7 @@ class SimulationReport:
 
         # Build report sections in logical order
         self._add_title_page()
+        self._add_table_of_contents()
         self._add_executive_summary()
 
         # Part 1: Overview
@@ -164,6 +216,70 @@ class SimulationReport:
         self.story.append(table)
         self.story.append(PageBreak())
 
+    def _add_table_of_contents(self):
+        """Add comprehensive table of contents."""
+        self.story.append(Paragraph("Table of Contents", self.styles['CustomHeading']))
+        self.story.append(Spacer(1, 0.3*inch))
+
+        toc_items = [
+            ("Executive Summary", "Overview of key findings and top performing strategies"),
+            ("", ""),
+            ("PART 1: Game Overview Statistics", ""),
+            ("  • Winning Score Distribution", "Analysis of winning score patterns across all games"),
+            ("  • Games by Player Count", "Breakdown of 2P, 3P, and 4P game distribution"),
+            ("", ""),
+            ("PART 2: Strategy Performance", ""),
+            ("  • Overall Win Rates by Strategy", "Comparative win rate analysis for all strategies"),
+            ("  • Average Scores by Strategy", "Score performance metrics per strategy"),
+            ("  • Strategy Performance Summary", "Comprehensive statistics table"),
+            ("  • Strategy Performance Analysis", "Visual breakdown with charts"),
+            ("", ""),
+            ("PART 3: Multi-Player & Matchups", ""),
+            ("  • Multi-Player Game Analysis", "Performance broken down by 2P, 3P, and 4P games"),
+            ("  • Strategy Performance by Player Count", "Win rate analysis for each player count"),
+            ("  • Strategy Matchups by Player Count", "Head-to-head performance against opponent combinations"),
+            ("  • Head-to-Head Analysis", "Direct strategy vs strategy comparisons"),
+            ("", ""),
+            ("PART 4: Gameplay Statistics", ""),
+            ("  • Works & VP Expenditure Analysis", "Card usage and victory point economics"),
+            ("  • VP Earned vs VP Spent", "Visual comparison by strategy"),
+            ("  • Works Played vs Cards Discarded", "Card management efficiency"),
+            ("  • Art Type & Theme Analysis", "Distribution of art types and themes by strategy"),
+            ("", ""),
+            ("PART 5: Advanced Mode Statistics", ""),
+            ("  • Room Tile Acquisition", "Strategic tile acquisition patterns"),
+            ("  • Advantage Card Selection", "Card preference analysis with heatmap"),
+            ("  • Artist and Theme Analysis", "Works placement statistics"),
+            ("", ""),
+            ("PART 6: Position & Insights", ""),
+            ("  • Position Analysis", "Starting position impact on win rates"),
+            ("  • Key Insights", "Strategic recommendations and observations"),
+        ]
+
+        toc_data = []
+        for section, description in toc_items:
+            if section == "":
+                toc_data.append(["", ""])
+            else:
+                toc_data.append([section, description])
+
+        toc_table = Table(toc_data, colWidths=[2.8*inch, 3.7*inch])
+        toc_table.setStyle(TableStyle([
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#1f4788')),
+            ('TEXTCOLOR', (1, 0), (1, -1), colors.HexColor('#666666')),
+            ('LEFTPADDING', (0, 0), (-1, -1), 0),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+            ('TOPPADDING', (0, 0), (-1, -1), 3),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        ]))
+
+        self.story.append(toc_table)
+        self.story.append(PageBreak())
+
     def _add_executive_summary(self):
         """Add executive summary section."""
         self.story.append(Paragraph("Executive Summary", self.styles['CustomHeading']))
@@ -194,41 +310,76 @@ class SimulationReport:
         """Add comprehensive game overview with visualizations."""
         self.story.append(PageBreak())
 
-        title = Paragraph("Game Overview Statistics", self.styles['CustomHeading'])
+        title = Paragraph("PART 1: Game Overview Statistics", self.styles['CustomHeading'])
         self.story.append(title)
         self.story.append(Spacer(1, 0.2*inch))
+
+        intro = Paragraph(
+            "This section provides a comprehensive overview of all simulated games, analyzing score distributions "
+            "and game configurations across different player counts.",
+            self.styles['BodyText']
+        )
+        self.story.append(intro)
+        self.story.append(Spacer(1, 0.3*inch))
 
         # Score distribution histogram
         subtitle = Paragraph("Winning Score Distribution", self.styles['Heading2'])
         self.story.append(subtitle)
         self.story.append(Spacer(1, 0.1*inch))
 
-        fig, ax = plt.subplots(figsize=(8, 4))
-        self.df['winner_score'].hist(bins=30, ax=ax, color='#1f4788', edgecolor='black')
-        ax.set_xlabel('Winning Score (VP)')
-        ax.set_ylabel('Frequency')
-        ax.set_title('Distribution of Winning Scores')
+        explanation = Paragraph(
+            "<b>What this shows:</b> This histogram displays the distribution of winning scores across all games. "
+            "Each bar represents how many games were won with scores in that range. The red dashed line shows the "
+            "mean (average) winning score, while the green dashed line shows the median (middle value).<br/><br/>"
+            "<b>How to interpret:</b> A normal bell-curve distribution suggests balanced game mechanics. Outliers "
+            "on either end may indicate dominant victories or close games. The proximity of mean and median indicates "
+            "symmetry in score distribution.",
+            self.styles['PlotExplanation']
+        )
+        self.story.append(explanation)
+        self.story.append(Spacer(1, 0.15*inch))
+
+        fig, ax = plt.subplots(figsize=self.plot_style['figsize_small'])
+        self.df['winner_score'].hist(bins=30, ax=ax, color=self.colors['primary'], edgecolor='black', alpha=0.7)
+        ax.set_xlabel('Winning Score (VP)', fontsize=self.plot_style['label_fontsize'])
+        ax.set_ylabel('Frequency', fontsize=self.plot_style['label_fontsize'])
+        ax.set_title('Distribution of Winning Scores', fontsize=self.plot_style['title_fontsize'], pad=10)
         ax.grid(axis='y', alpha=0.3)
+        ax.tick_params(labelsize=self.plot_style['tick_fontsize'])
 
         # Add mean and median lines
         mean_score = self.df['winner_score'].mean()
         median_score = self.df['winner_score'].median()
-        ax.axvline(mean_score, color='red', linestyle='--', label=f'Mean: {mean_score:.1f}')
-        ax.axvline(median_score, color='green', linestyle='--', label=f'Median: {median_score:.1f}')
-        ax.legend()
+        ax.axvline(mean_score, color='red', linestyle='--', linewidth=2, label=f'Mean: {mean_score:.1f}')
+        ax.axvline(median_score, color=self.colors['success'], linestyle='--', linewidth=2, label=f'Median: {median_score:.1f}')
+        ax.legend(fontsize=self.plot_style['legend_fontsize'])
 
         img_path = f"{self.temp_dir}/score_distribution.png"
         plt.tight_layout()
-        plt.savefig(img_path, dpi=150, bbox_inches='tight')
+        plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
         plt.close()
 
         self.story.append(Image(img_path, width=6*inch, height=3*inch))
-        self.story.append(Spacer(1, 0.2*inch))
+        self.story.append(Spacer(1, 0.3*inch))
 
         # Player count distribution
         subtitle = Paragraph("Games by Player Count", self.styles['Heading2'])
         self.story.append(subtitle)
         self.story.append(Spacer(1, 0.1*inch))
+
+        explanation = Paragraph(
+            "<b>What this shows:</b> The left chart shows the absolute number of games played with 2, 3, or 4 players, "
+            "while the right pie chart shows the proportional distribution. Each player count may have different strategic "
+            "dynamics.<br/><br/>"
+            "<b>How to interpret:</b> This helps you understand the dataset composition. If one player count dominates, "
+            "overall statistics may be skewed toward that configuration. Balanced representation across player counts "
+            "ensures more generalizable conclusions.<br/><br/>"
+            "<b>Why it matters:</b> Different player counts change game dynamics significantly - 2P games are more "
+            "head-to-head tactical, while 4P games involve more complex multi-opponent positioning.",
+            self.styles['PlotExplanation']
+        )
+        self.story.append(explanation)
+        self.story.append(Spacer(1, 0.15*inch))
 
         # Count games by player count
         player_counts = []
@@ -239,38 +390,52 @@ class SimulationReport:
             player_counts.append(num_players)
 
         player_count_series = pd.Series(player_counts)
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=self.plot_style['figsize_standard'])
 
         # Bar chart
         counts = player_count_series.value_counts().sort_index()
-        ax1.bar(counts.index, counts.values, color=['#1f4788', '#2c5f2d', '#8b4513'], edgecolor='black')
-        ax1.set_xlabel('Number of Players')
-        ax1.set_ylabel('Number of Games')
-        ax1.set_title('Games Distribution by Player Count')
+        colors_list = [self.colors['player2'], self.colors['player3'], self.colors['player4']]
+        ax1.bar(counts.index, counts.values, color=colors_list[:len(counts)], edgecolor='black', alpha=0.8)
+        ax1.set_xlabel('Number of Players', fontsize=self.plot_style['label_fontsize'])
+        ax1.set_ylabel('Number of Games', fontsize=self.plot_style['label_fontsize'])
+        ax1.set_title('Games Distribution by Player Count', fontsize=self.plot_style['title_fontsize'])
         ax1.set_xticks([2, 3, 4])
         ax1.grid(axis='y', alpha=0.3)
+        ax1.tick_params(labelsize=self.plot_style['tick_fontsize'])
+
+        # Add value labels on bars
+        for i, (idx, val) in enumerate(zip(counts.index, counts.values)):
+            ax1.text(idx, val + max(counts.values) * 0.02, f'{val:,}', ha='center', fontsize=9)
 
         # Pie chart
         ax2.pie(counts.values, labels=[f'{int(k)}P' for k in counts.index],
-                autopct='%1.1f%%', colors=['#1f4788', '#2c5f2d', '#8b4513'],
-                startangle=90)
-        ax2.set_title('Player Count Proportions')
+                autopct='%1.1f%%', colors=colors_list[:len(counts)],
+                startangle=90, textprops={'fontsize': self.plot_style['tick_fontsize']})
+        ax2.set_title('Player Count Proportions', fontsize=self.plot_style['title_fontsize'])
 
         img_path = f"{self.temp_dir}/player_count_dist.png"
         plt.tight_layout()
-        plt.savefig(img_path, dpi=150, bbox_inches='tight')
+        plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
         plt.close()
 
         self.story.append(Image(img_path, width=6.5*inch, height=3*inch))
-        self.story.append(Spacer(1, 0.2*inch))
+        self.story.append(Spacer(1, 0.3*inch))
 
     def _add_strategy_performance_overview(self):
         """Add visual overview of strategy performance."""
         self.story.append(PageBreak())
 
-        title = Paragraph("Strategy Performance Overview", self.styles['CustomHeading'])
+        title = Paragraph("PART 2: Strategy Performance Overview", self.styles['CustomHeading'])
         self.story.append(title)
         self.story.append(Spacer(1, 0.2*inch))
+
+        intro = Paragraph(
+            "This section analyzes the performance of each AI strategy across all games, comparing win rates and "
+            "average scores. These metrics help identify which strategies are most effective overall and in specific contexts.",
+            self.styles['BodyText']
+        )
+        self.story.append(intro)
+        self.story.append(Spacer(1, 0.3*inch))
 
         # Calculate strategy statistics
         strategy_stats = {}
@@ -302,59 +467,89 @@ class SimulationReport:
         self.story.append(subtitle)
         self.story.append(Spacer(1, 0.1*inch))
 
+        explanation = Paragraph(
+            "<b>What this shows:</b> This horizontal bar chart compares the win rate (percentage of games won) for each "
+            "strategy across all games. The red dashed line represents the expected win rate of 25% for balanced 4-player "
+            "games. Bars are color-coded: green for high performers (>30%), blue for average, and brown for low performers (<20%).<br/><br/>"
+            "<b>How to interpret:</b> Strategies significantly above the 25% line are overperforming, while those below "
+            "are underperforming. In balanced games, all strategies should cluster near 25%. Large deviations suggest "
+            "strategic advantages or weaknesses.<br/><br/>"
+            "<b>Why it matters:</b> This is the primary metric for strategy effectiveness. However, remember that raw win "
+            "rates don't account for player count variations - see the Multi-Player Analysis section for player-count-specific rates.",
+            self.styles['PlotExplanation']
+        )
+        self.story.append(explanation)
+        self.story.append(Spacer(1, 0.15*inch))
+
         strategies = sorted(strategy_stats.keys())
         win_rates = [(strategy_stats[s]['wins'] / strategy_stats[s]['games'] * 100)
                      for s in strategies]
 
-        fig, ax = plt.subplots(figsize=(10, 5))
-        bars = ax.barh(strategies, win_rates, color='#1f4788', edgecolor='black')
+        fig, ax = plt.subplots(figsize=self.plot_style['figsize_standard'])
+        bars = ax.barh(strategies, win_rates, color=self.colors['primary'], edgecolor='black', alpha=0.8)
 
         # Color code bars by performance
         for i, bar in enumerate(bars):
             if win_rates[i] > 30:
-                bar.set_color('#2c5f2d')  # Green for high performers
+                bar.set_color(self.colors['success'])  # Green for high performers
             elif win_rates[i] < 20:
-                bar.set_color('#8b4513')  # Brown for low performers
+                bar.set_color(self.colors['warning'])  # Brown for low performers
 
-        ax.set_xlabel('Win Rate (%)')
-        ax.set_title('Strategy Win Rates (Expected: 25% in 4-player games)')
+        ax.set_xlabel('Win Rate (%)', fontsize=self.plot_style['label_fontsize'])
+        ax.set_title('Strategy Win Rates (Expected: 25% in 4-player games)',
+                    fontsize=self.plot_style['title_fontsize'], pad=10)
         ax.axvline(25, color='red', linestyle='--', linewidth=2, label='Expected (25%)')
-        ax.legend()
+        ax.legend(fontsize=self.plot_style['legend_fontsize'])
         ax.grid(axis='x', alpha=0.3)
+        ax.tick_params(labelsize=self.plot_style['tick_fontsize'])
 
         # Add value labels
         for i, (strategy, rate) in enumerate(zip(strategies, win_rates)):
-            ax.text(rate + 0.5, i, f'{rate:.1f}%', va='center', fontsize=9)
+            ax.text(rate + 0.5, i, f'{rate:.1f}%', va='center', fontsize=self.plot_style['tick_fontsize'])
 
         img_path = f"{self.temp_dir}/win_rates.png"
         plt.tight_layout()
-        plt.savefig(img_path, dpi=150, bbox_inches='tight')
+        plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
         plt.close()
 
         self.story.append(Image(img_path, width=6.5*inch, height=4*inch))
-        self.story.append(Spacer(1, 0.2*inch))
+        self.story.append(Spacer(1, 0.3*inch))
 
         # Average scores bar chart
         subtitle = Paragraph("Average Scores by Strategy", self.styles['Heading2'])
         self.story.append(subtitle)
         self.story.append(Spacer(1, 0.1*inch))
 
+        explanation = Paragraph(
+            "<b>What this shows:</b> This chart displays the average score achieved by each strategy across all games, "
+            "regardless of whether they won or lost. This provides insight into overall point accumulation effectiveness.<br/><br/>"
+            "<b>How to interpret:</b> Higher average scores indicate more consistent point generation. A strategy with high "
+            "average scores but moderate win rate might be competitive but lose close games. Conversely, low average scores "
+            "with high win rates suggest the strategy wins decisively when it does win.<br/><br/>"
+            "<b>Why it matters:</b> Average score complements win rate analysis. Strategies that score consistently high "
+            "are more reliable, while those with variable scores may be more matchup-dependent or risky.",
+            self.styles['PlotExplanation']
+        )
+        self.story.append(explanation)
+        self.story.append(Spacer(1, 0.15*inch))
+
         avg_scores = [(strategy_stats[s]['total_score'] / strategy_stats[s]['games'])
                       for s in strategies]
 
-        fig, ax = plt.subplots(figsize=(10, 5))
-        bars = ax.barh(strategies, avg_scores, color='#2c5f2d', edgecolor='black')
-        ax.set_xlabel('Average Score (VP)')
-        ax.set_title('Average Scores by Strategy')
+        fig, ax = plt.subplots(figsize=self.plot_style['figsize_standard'])
+        bars = ax.barh(strategies, avg_scores, color=self.colors['success'], edgecolor='black', alpha=0.8)
+        ax.set_xlabel('Average Score (VP)', fontsize=self.plot_style['label_fontsize'])
+        ax.set_title('Average Scores by Strategy', fontsize=self.plot_style['title_fontsize'], pad=10)
         ax.grid(axis='x', alpha=0.3)
+        ax.tick_params(labelsize=self.plot_style['tick_fontsize'])
 
         # Add value labels
         for i, (strategy, score) in enumerate(zip(strategies, avg_scores)):
-            ax.text(score + 0.5, i, f'{score:.1f}', va='center', fontsize=9)
+            ax.text(score + 0.5, i, f'{score:.1f}', va='center', fontsize=self.plot_style['tick_fontsize'])
 
         img_path = f"{self.temp_dir}/avg_scores.png"
         plt.tight_layout()
-        plt.savefig(img_path, dpi=150, bbox_inches='tight')
+        plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
         plt.close()
 
         self.story.append(Image(img_path, width=6.5*inch, height=4*inch))
@@ -401,6 +596,15 @@ class SimulationReport:
         self.story.append(title)
         self.story.append(Spacer(1, 0.2*inch))
 
+        intro = Paragraph(
+            "This section analyzes which art types (Crafts, Painting, Sculpture, Relic) and themes (Nature, Mythology, "
+            "Society, Orientalism) are preferred by each strategy. These patterns reveal strategic focus areas and can "
+            "indicate whether strategies successfully pursue room type/theme bonuses or fashion trends.",
+            self.styles['BodyText']
+        )
+        self.story.append(intro)
+        self.story.append(Spacer(1, 0.3*inch))
+
         # Collect data by strategy
         strategy_art_data = {}
         for pos in range(1, 5):
@@ -437,6 +641,20 @@ class SimulationReport:
             self.story.append(subtitle)
             self.story.append(Spacer(1, 0.1*inch))
 
+            explanation = Paragraph(
+                "<b>What this shows:</b> This stacked bar chart displays the composition of works played by each strategy, "
+                "broken down by art type (Crafts, Painting, Sculpture, Relic). Each colored segment represents the average "
+                "number of works of that type placed per game.<br/><br/>"
+                "<b>How to interpret:</b> Total bar height shows overall productivity (total works placed), while segment "
+                "proportions reveal art type preferences. Balanced distributions suggest flexible strategies, while skewed "
+                "distributions indicate specialization in specific room types (since room types correspond to art types).<br/><br/>"
+                "<b>Why it matters:</b> Art type distribution reveals whether strategies successfully pursue room-type bonuses. "
+                "Strategies focused on specific types should show clear segment dominance.",
+                self.styles['PlotExplanation']
+            )
+            self.story.append(explanation)
+            self.story.append(Spacer(1, 0.15*inch))
+
             strategies = sorted(strategy_art_data.keys())
             art_types = ['crafts', 'painting', 'sculpture', 'relic']
             art_type_data = {art_type: [np.mean(strategy_art_data[s][art_type])
@@ -444,28 +662,27 @@ class SimulationReport:
                                          for s in strategies]
                             for art_type in art_types}
 
-            fig, ax = plt.subplots(figsize=(10, 6))
+            fig, ax = plt.subplots(figsize=self.plot_style['figsize_wide'])
             x = np.arange(len(strategies))
             width = 0.6
             bottom = np.zeros(len(strategies))
 
-            colors_map = {'crafts': '#8b4513', 'painting': '#1f4788', 'sculpture': '#2c5f2d', 'relic': '#8b0000'}
-
             for art_type in art_types:
                 ax.bar(x, art_type_data[art_type], width, label=art_type.capitalize(),
-                      bottom=bottom, color=colors_map[art_type], edgecolor='black')
+                      bottom=bottom, color=self.colors[art_type], edgecolor='black', alpha=0.8)
                 bottom += art_type_data[art_type]
 
-            ax.set_ylabel('Average Works Played')
-            ax.set_title('Art Type Distribution by Strategy')
+            ax.set_ylabel('Average Works Played', fontsize=self.plot_style['label_fontsize'])
+            ax.set_title('Art Type Distribution by Strategy', fontsize=self.plot_style['title_fontsize'], pad=10)
             ax.set_xticks(x)
-            ax.set_xticklabels(strategies, rotation=45, ha='right')
-            ax.legend(loc='upper left')
+            ax.set_xticklabels(strategies, rotation=45, ha='right', fontsize=self.plot_style['tick_fontsize'])
+            ax.legend(loc='upper left', fontsize=self.plot_style['legend_fontsize'])
             ax.grid(axis='y', alpha=0.3)
+            ax.tick_params(axis='y', labelsize=self.plot_style['tick_fontsize'])
 
             img_path = f"{self.temp_dir}/art_types_stacked.png"
             plt.tight_layout()
-            plt.savefig(img_path, dpi=150, bbox_inches='tight')
+            plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
             plt.close()
 
             self.story.append(Image(img_path, width=6.5*inch, height=4.5*inch))
@@ -476,46 +693,63 @@ class SimulationReport:
             self.story.append(subtitle)
             self.story.append(Spacer(1, 0.1*inch))
 
+            explanation = Paragraph(
+                "<b>What this shows:</b> This stacked bar chart displays theme distribution (Nature, Mythology, Society, "
+                "Orientalism) for works placed by each strategy. Similar to art types, this reveals thematic preferences.<br/><br/>"
+                "<b>How to interpret:</b> Theme distribution indicates whether strategies pursue room-theme bonuses or "
+                "fashion trend objectives. Balanced themes suggest flexible play adapting to available cards, while skewed "
+                "distributions suggest specialization in specific thematic focuses.<br/><br/>"
+                "<b>Why it matters:</b> Theme bonuses can provide significant VP advantages. Strategies that successfully "
+                "concentrate on specific themes should show clear dominance in those segments, correlating with higher scores "
+                "when fashion trends align with their thematic focus.",
+                self.styles['PlotExplanation']
+            )
+            self.story.append(explanation)
+            self.story.append(Spacer(1, 0.15*inch))
+
             themes = ['nature', 'mythology', 'society', 'orientalism']
             theme_data = {theme: [np.mean(strategy_art_data[s][theme])
                                   if strategy_art_data[s][theme] else 0
                                   for s in strategies]
                          for theme in themes}
 
-            fig, ax = plt.subplots(figsize=(10, 6))
+            fig, ax = plt.subplots(figsize=self.plot_style['figsize_wide'])
             bottom = np.zeros(len(strategies))
-
-            colors_map = {'nature': '#2c5f2d', 'mythology': '#4169e1', 'society': '#8b4513', 'orientalism': '#ff8c00'}
 
             for theme in themes:
                 ax.bar(x, theme_data[theme], width, label=theme.capitalize(),
-                      bottom=bottom, color=colors_map[theme], edgecolor='black')
+                      bottom=bottom, color=self.colors[theme], edgecolor='black', alpha=0.8)
                 bottom += theme_data[theme]
 
-            ax.set_ylabel('Average Works Played')
-            ax.set_title('Theme Distribution by Strategy')
+            ax.set_ylabel('Average Works Played', fontsize=self.plot_style['label_fontsize'])
+            ax.set_title('Theme Distribution by Strategy', fontsize=self.plot_style['title_fontsize'], pad=10)
             ax.set_xticks(x)
-            ax.set_xticklabels(strategies, rotation=45, ha='right')
-            ax.legend(loc='upper left')
+            ax.set_xticklabels(strategies, rotation=45, ha='right', fontsize=self.plot_style['tick_fontsize'])
+            ax.legend(loc='upper left', fontsize=self.plot_style['legend_fontsize'])
             ax.grid(axis='y', alpha=0.3)
+            ax.tick_params(axis='y', labelsize=self.plot_style['tick_fontsize'])
 
             img_path = f"{self.temp_dir}/themes_stacked.png"
             plt.tight_layout()
-            plt.savefig(img_path, dpi=150, bbox_inches='tight')
+            plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
             plt.close()
 
             self.story.append(Image(img_path, width=6.5*inch, height=4.5*inch))
+            self.story.append(Spacer(1, 0.3*inch))
 
     def _add_player_count_analysis(self):
         """Add analysis broken down by player count."""
         self.story.append(PageBreak())
 
-        title = Paragraph("Multi-Player Game Analysis", self.styles['CustomHeading'])
+        title = Paragraph("PART 3: Multi-Player Game Analysis", self.styles['CustomHeading'])
         self.story.append(title)
         self.story.append(Spacer(1, 0.2*inch))
 
         intro = Paragraph(
-            "This section analyzes game outcomes across different player counts (2, 3, and 4 players).",
+            "This section provides detailed analysis broken down by player count (2P, 3P, and 4P games). "
+            "Game dynamics change significantly with different player counts: 2-player games are more tactical and direct, "
+            "3-player games introduce triangular dynamics, and 4-player games involve complex multi-opponent strategies. "
+            "Understanding performance across these configurations is crucial for evaluating strategy robustness.",
             self.styles['BodyText']
         )
         self.story.append(intro)
@@ -585,6 +819,20 @@ class SimulationReport:
         # Strategy performance by player count
         subtitle = Paragraph("Strategy Performance by Player Count", self.styles['Heading2'])
         self.story.append(subtitle)
+        self.story.append(Spacer(1, 0.1*inch))
+
+        explanation = Paragraph(
+            "<b>What this shows:</b> This table displays win rates for each strategy broken down by player count (2P, 3P, 4P). "
+            "Win rates are normalized to show performance relative to expectation: 100% means the strategy won exactly as "
+            "often as expected (50% in 2P, 33% in 3P, 25% in 4P), values above 100% indicate overperformance.<br/><br/>"
+            "<b>How to interpret:</b> Compare horizontally to see how a strategy adapts to different player counts. "
+            "Some strategies excel in head-to-head 2P games but struggle in 4P games, or vice versa. A truly robust strategy "
+            "performs well across all player counts (consistently above 100%).<br/><br/>"
+            "<b>Why it matters:</b> This reveals strategic versatility. Strategies that only perform well at specific player "
+            "counts may have exploitable patterns or require specific opponent configurations to succeed.",
+            self.styles['PlotExplanation']
+        )
+        self.story.append(explanation)
         self.story.append(Spacer(1, 0.2*inch))
 
         # Create win rate table
@@ -634,12 +882,14 @@ class SimulationReport:
         """Add comprehensive works played/discarded and VP spending statistics."""
         self.story.append(PageBreak())
 
-        title = Paragraph("Works & VP Expenditure Analysis", self.styles['CustomHeading'])
+        title = Paragraph("PART 4: Works & VP Expenditure Analysis", self.styles['CustomHeading'])
         self.story.append(title)
         self.story.append(Spacer(1, 0.2*inch))
 
         intro = Paragraph(
-            "Comprehensive analysis of works played, cards discarded, and VP spending patterns across all strategies.",
+            "This section analyzes the game economy: how strategies manage their card hands, how many works they successfully "
+            "place versus discard, and how they balance VP earning versus spending. Understanding these patterns reveals "
+            "strategic decision-making and resource management efficiency.",
             self.styles['BodyText']
         )
         self.story.append(intro)
@@ -702,29 +952,47 @@ class SimulationReport:
         self.story.append(subtitle)
         self.story.append(Spacer(1, 0.1*inch))
 
+        explanation = Paragraph(
+            "<b>What this shows:</b> This grouped bar chart compares average Victory Points (VP) earned versus VP spent for "
+            "each strategy. Green bars show VP earned from placing works, while brown bars show VP spent on room tiles and "
+            "other strategic purchases.<br/><br/>"
+            "<b>How to interpret:</b> Ideally, VP earned should significantly exceed VP spent - this indicates efficient "
+            "resource management. Strategies with high spending but low earnings may be over-investing in infrastructure. "
+            "The gap between earned and spent represents net VP contribution to final score.<br/><br/>"
+            "<b>Why it matters:</b> This reveals economic efficiency. A winning strategy must balance investment in "
+            "infrastructure (room tiles) with actual point generation from works. Over-spending on tiles can leave you "
+            "point-starved even with a perfect house layout.",
+            self.styles['PlotExplanation']
+        )
+        self.story.append(explanation)
+        self.story.append(Spacer(1, 0.15*inch))
+
         strategies = sorted(strategy_stats.keys())
         vp_earned = [np.mean(strategy_stats[s]['total_vp_earned']) if strategy_stats[s]['total_vp_earned'] else 0
                      for s in strategies]
         vp_spent = [np.mean(strategy_stats[s]['total_vp_spent']) if strategy_stats[s]['total_vp_spent'] else 0
                     for s in strategies]
 
-        fig, ax = plt.subplots(figsize=(10, 5))
+        fig, ax = plt.subplots(figsize=self.plot_style['figsize_standard'])
         x = np.arange(len(strategies))
         width = 0.35
 
-        ax.barh(x - width/2, vp_earned, width, label='VP Earned', color='#2c5f2d', edgecolor='black')
-        ax.barh(x + width/2, vp_spent, width, label='VP Spent', color='#8b4513', edgecolor='black')
+        ax.barh(x - width/2, vp_earned, width, label='VP Earned',
+                color=self.colors['success'], edgecolor='black', alpha=0.8)
+        ax.barh(x + width/2, vp_spent, width, label='VP Spent',
+                color=self.colors['warning'], edgecolor='black', alpha=0.8)
 
-        ax.set_xlabel('Average VP')
-        ax.set_title('VP Economics by Strategy')
+        ax.set_xlabel('Average VP', fontsize=self.plot_style['label_fontsize'])
+        ax.set_title('VP Economics by Strategy', fontsize=self.plot_style['title_fontsize'], pad=10)
         ax.set_yticks(x)
-        ax.set_yticklabels(strategies)
-        ax.legend()
+        ax.set_yticklabels(strategies, fontsize=self.plot_style['tick_fontsize'])
+        ax.legend(fontsize=self.plot_style['legend_fontsize'])
         ax.grid(axis='x', alpha=0.3)
+        ax.tick_params(axis='x', labelsize=self.plot_style['tick_fontsize'])
 
         img_path = f"{self.temp_dir}/vp_earned_vs_spent.png"
         plt.tight_layout()
-        plt.savefig(img_path, dpi=150, bbox_inches='tight')
+        plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
         plt.close()
 
         self.story.append(Image(img_path, width=6.5*inch, height=4*inch))
@@ -735,25 +1003,41 @@ class SimulationReport:
         self.story.append(subtitle)
         self.story.append(Spacer(1, 0.1*inch))
 
+        explanation = Paragraph(
+            "<b>What this shows:</b> This chart compares the average number of works successfully placed (blue bars) versus "
+            "cards discarded (red bars) for each strategy. The ratio reveals card management efficiency.<br/><br/>"
+            "<b>How to interpret:</b> A higher ratio of works played to cards discarded indicates better hand management "
+            "and strategic planning. High discard rates may suggest poor artist selection, inadequate room preparation, or "
+            "overly aggressive commission targeting. The ideal strategy places most cards it draws.<br/><br/>"
+            "<b>Why it matters:</b> Every discarded card represents a missed opportunity for points. Efficient strategies "
+            "minimize waste by maintaining appropriate room tiles and selecting artists that match their hand composition.",
+            self.styles['PlotExplanation']
+        )
+        self.story.append(explanation)
+        self.story.append(Spacer(1, 0.15*inch))
+
         works_played = [np.mean(strategy_stats[s]['total_works_played']) if strategy_stats[s]['total_works_played'] else 0
                         for s in strategies]
         cards_discarded = [np.mean(strategy_stats[s]['total_cards_discarded']) if strategy_stats[s]['total_cards_discarded'] else 0
                            for s in strategies]
 
-        fig, ax = plt.subplots(figsize=(10, 5))
-        ax.barh(x - width/2, works_played, width, label='Works Played', color='#1f4788', edgecolor='black')
-        ax.barh(x + width/2, cards_discarded, width, label='Cards Discarded', color='#8b0000', edgecolor='black')
+        fig, ax = plt.subplots(figsize=self.plot_style['figsize_standard'])
+        ax.barh(x - width/2, works_played, width, label='Works Played',
+                color=self.colors['primary'], edgecolor='black', alpha=0.8)
+        ax.barh(x + width/2, cards_discarded, width, label='Cards Discarded',
+                color=self.colors['danger'], edgecolor='black', alpha=0.8)
 
-        ax.set_xlabel('Average Cards')
-        ax.set_title('Card Usage by Strategy')
+        ax.set_xlabel('Average Cards', fontsize=self.plot_style['label_fontsize'])
+        ax.set_title('Card Usage by Strategy', fontsize=self.plot_style['title_fontsize'], pad=10)
         ax.set_yticks(x)
-        ax.set_yticklabels(strategies)
-        ax.legend()
+        ax.set_yticklabels(strategies, fontsize=self.plot_style['tick_fontsize'])
+        ax.legend(fontsize=self.plot_style['legend_fontsize'])
         ax.grid(axis='x', alpha=0.3)
+        ax.tick_params(axis='x', labelsize=self.plot_style['tick_fontsize'])
 
         img_path = f"{self.temp_dir}/works_vs_discarded.png"
         plt.tight_layout()
-        plt.savefig(img_path, dpi=150, bbox_inches='tight')
+        plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
         plt.close()
 
         self.story.append(Image(img_path, width=6.5*inch, height=4*inch))
@@ -867,20 +1151,35 @@ class SimulationReport:
 
         self.story.append(PageBreak())
 
-        title = Paragraph("Advanced Mode Statistics", self.styles['CustomHeading'])
+        title = Paragraph("PART 5: Advanced Mode Statistics", self.styles['CustomHeading'])
         self.story.append(title)
         self.story.append(Spacer(1, 0.2*inch))
+
+        intro = Paragraph(
+            "Advanced mode introduces room tiles and advantage cards, adding strategic depth to the base game. "
+            "This section analyzes how strategies utilize these advanced features: tile acquisition patterns, "
+            "advantage card preferences, and the impact on overall performance.",
+            self.styles['BodyText']
+        )
+        self.story.append(intro)
+        self.story.append(Spacer(1, 0.3*inch))
 
         # Room Tile Acquisition Stats
         subtitle = Paragraph("Room Tile Acquisition", self.styles['Heading2'])
         self.story.append(subtitle)
-        self.story.append(Spacer(1, 0.2*inch))
+        self.story.append(Spacer(1, 0.1*inch))
 
-        intro = Paragraph(
-            "Analysis of room tile acquisition patterns across all strategies.",
-            self.styles['BodyText']
+        explanation = Paragraph(
+            "<b>What this shows:</b> This table displays room tile acquisition statistics: average tiles acquired per game, "
+            "minimum and maximum values, and standard deviation. Room tiles cost 2 VP each but are necessary to place works.<br/><br/>"
+            "<b>How to interpret:</b> Higher average tile counts suggest more aggressive expansion strategies, while lower "
+            "counts indicate conservative play. High standard deviation means inconsistent acquisition (adapting to game state), "
+            "while low deviation suggests fixed tile-buying patterns.<br/><br/>"
+            "<b>Why it matters:</b> Tile acquisition represents a strategic investment trade-off: spending VP now to enable "
+            "future point generation. Optimal strategies balance tile costs against placement needs and VP efficiency.",
+            self.styles['PlotExplanation']
         )
-        self.story.append(intro)
+        self.story.append(explanation)
         self.story.append(Spacer(1, 0.2*inch))
 
         # Calculate room tile stats by strategy
@@ -940,13 +1239,19 @@ class SimulationReport:
         # Advantage Card Selection Statistics
         subtitle = Paragraph("Advantage Card Selection Statistics", self.styles['Heading2'])
         self.story.append(subtitle)
-        self.story.append(Spacer(1, 0.2*inch))
+        self.story.append(Spacer(1, 0.1*inch))
 
-        intro = Paragraph(
-            "Analysis of which advantage cards are selected most frequently by each strategy.",
-            self.styles['BodyText']
+        explanation = Paragraph(
+            "<b>What this shows:</b> This heatmap and accompanying table show which advantage cards each strategy selects "
+            "most frequently. Warmer colors (orange/red) indicate higher selection rates, while cooler colors indicate rare selection.<br/><br/>"
+            "<b>How to interpret:</b> Card preferences reveal strategic priorities. Universal Exhibition and Patronage provide "
+            "flexible VP gains, while cards like Remodeling or Reform enable tactical repositioning. Strategies with diverse "
+            "card selections adapt to game state, while focused selections suggest specific tactical approaches.<br/><br/>"
+            "<b>Why it matters:</b> Advantage cards provide crucial swing opportunities. Understanding which cards each strategy "
+            "values helps predict their decision-making and identify potential exploitable patterns.",
+            self.styles['PlotExplanation']
         )
-        self.story.append(intro)
+        self.story.append(explanation)
         self.story.append(Spacer(1, 0.2*inch))
 
         # Collect advantage card selections
