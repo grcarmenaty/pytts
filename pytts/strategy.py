@@ -491,8 +491,24 @@ class RoomThemeTypeStrategy(Strategy):
         game: 'ModernismeGame',
         room_name: str
     ) -> bool:
-        """Acquire room tiles eagerly to enable room bonuses."""
-        # Be aggressive about getting room tiles since they're core to strategy
+        """Acquire room tiles strategically based on game state."""
+        # Don't acquire if we're low on cards
+        if len(player.hand.cards) < 3:
+            return False
+
+        # Check if this room tile would enable immediate placements
+        board = game.get_board(f"{player.name}_board")
+        if board:
+            # Count how many empty slots are in rooms we have tiles for
+            usable_slots = sum(1 for slot in board.slots
+                             if slot.is_empty() and
+                             slot.get_property("room") in getattr(player, 'room_tiles', {}))
+
+            # If we have plenty of usable slots, don't rush to get more tiles
+            if usable_slots >= 3:
+                return len(player.hand.cards) >= 5
+
+        # Acquire if we have good hand size
         return len(player.hand.cards) >= 3
 
     def _analyze_rooms(self, board) -> dict:
@@ -668,8 +684,27 @@ class MaxWorksStrategy(Strategy):
         room_name: str
     ) -> bool:
         """Acquire room tiles to unlock more placement spaces."""
-        # Very eager to get room tiles (enables more placements)
-        return len(player.hand.cards) >= 3
+        # Need at least moderate hand size
+        if len(player.hand.cards) < 3:
+            return False
+
+        # Check if we're blocked - do we have commissionable works but no rooms?
+        board = game.get_board(f"{player.name}_board")
+        if board:
+            usable_slots = sum(1 for slot in board.slots
+                             if slot.is_empty() and
+                             slot.get_property("room") in getattr(player, 'room_tiles', {}))
+
+            # If we have no usable slots, definitely acquire
+            if usable_slots == 0:
+                return True
+
+            # If we have few slots and many cards, acquire
+            if usable_slots <= 1 and len(player.hand.cards) >= 4:
+                return True
+
+        # Default: moderately eager
+        return len(player.hand.cards) >= 4
 
 
 class HighValueWorksStrategy(Strategy):
@@ -769,9 +804,19 @@ class HighValueWorksStrategy(Strategy):
         game: 'ModernismeGame',
         room_name: str
     ) -> bool:
-        """Moderate on room tile acquisition (focus resources on high-VP works)."""
-        # Less eager than other strategies - save VP for expensive works
-        return len(player.hand.cards) >= 4
+        """Strategic room tile acquisition for high-VP strategy."""
+        # Don't acquire if hand is too small
+        if len(player.hand.cards) < 4:
+            return False
+
+        # Check if we have high-VP works in hand that need this room
+        high_vp_works = [c for c in player.hand.cards if c.get_property("vp", 0) >= 3]
+        if len(high_vp_works) >= 2:
+            # Worth acquiring to enable high-VP placement
+            return True
+
+        # Otherwise be conservative
+        return len(player.hand.cards) >= 5
 
 
 class ModaTemaStrategy(Strategy):
