@@ -159,6 +159,108 @@ class Strategy(ABC):
         # Default: don't use advantage cards automatically (too complex for default)
         return None
 
+    def select_artist_to_hire(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        available_artists: List['Card']
+    ) -> 'Card':
+        """
+        Select which artist to hire from the available options.
+
+        Args:
+            player: The player making the decision
+            game: The game instance
+            available_artists: List of artists drawn from the deck
+
+        Returns:
+            The artist to hire
+        """
+        # Default: select artist that matches most works in hand
+        if not available_artists:
+            return available_artists[0]
+
+        best_artist = available_artists[0]
+        best_match_count = 0
+
+        for artist in available_artists:
+            artist_type = artist.get_property("art_type")
+            match_count = sum(1 for work in player.hand.cards
+                            if work.get_property("art_type") == artist_type)
+            if match_count > best_match_count:
+                best_match_count = match_count
+                best_artist = artist
+
+        return best_artist
+
+    def select_artist_to_dismiss(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        active_artists: List['Card'],
+        hired_artist: 'Card'
+    ) -> 'Card':
+        """
+        Select which active artist to dismiss when hiring a new one.
+
+        Args:
+            player: The player making the decision
+            game: The game instance
+            active_artists: List of currently active artists
+            hired_artist: The artist being hired
+
+        Returns:
+            The artist to dismiss
+        """
+        # Default: dismiss the artist with fewest matching works
+        if len(active_artists) < 2:
+            return active_artists[0]
+
+        artist_match_counts = []
+        for artist in active_artists:
+            artist_type = artist.get_property("art_type")
+            match_count = sum(1 for work in player.hand.cards
+                            if work.get_property("art_type") == artist_type)
+            artist_match_counts.append((artist, match_count))
+
+        # Sort by match count (ascending) and dismiss the one with least matches
+        artist_match_counts.sort(key=lambda x: x[1])
+        return artist_match_counts[0][0]
+
+    def steal_artist_from_neighbor(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        available_artists: List['Card']
+    ) -> Optional['Card']:
+        """
+        Decide whether to steal an artist from a neighbor.
+
+        Args:
+            player: The player making the decision
+            game: The game instance
+            available_artists: List of artists available to steal
+
+        Returns:
+            The artist to steal, or None if shouldn't steal
+        """
+        # Default: steal if there's an artist that matches many works in hand
+        if not available_artists:
+            return None
+
+        best_artist = None
+        best_match_count = 2  # Only steal if at least 2 matches
+
+        for artist in available_artists:
+            artist_type = artist.get_property("art_type")
+            match_count = sum(1 for work in player.hand.cards
+                            if work.get_property("art_type") == artist_type)
+            if match_count > best_match_count:
+                best_match_count = match_count
+                best_artist = artist
+
+        return best_artist
+
     def get_commissionable_works(
         self,
         player: 'ModernismePlayer'

@@ -128,30 +128,46 @@ class ModernismeAdvancedPlayer(Player):
 
     def strategy(self, game: 'ModernismeAdvancedGame') -> None:
         """AI strategy for advanced Modernisme."""
-        # In advanced mode, may need to acquire room tiles first
-        works_to_commission = min(2, len(self.hand.cards))
-
-        # Check if we need room tiles
         board = game.get_board(f"{self.name}_board")
-        available_rooms = set()
-        for slot in board.slots:
-            if slot.is_empty():
-                room_name = slot.get_property("room")
-                if room_name not in self.room_tiles:
-                    available_rooms.add(room_name)
 
-        # Consider acquiring room tiles if needed - use strategy to decide
-        if available_rooms:
-            room_to_acquire = list(available_rooms)[0]
-            should_acquire = False
-            if self.ai_strategy:
-                should_acquire = self.ai_strategy.should_acquire_room_tile(self, game, room_to_acquire)
-            elif len(self.hand.cards) >= 3:
-                should_acquire = True
+        # First, identify ALL works in hand that can be commissioned
+        commissionable_works = []
+        for work in self.hand.cards:
+            work_type = work.get_property("art_type")
+            can_commission = any(
+                artist.get_property("art_type") == work_type
+                for artist in self.active_artists
+            )
+            if can_commission:
+                commissionable_works.append(work)
 
-            if should_acquire and self._try_acquire_room_tile(game, room_to_acquire):
-                game.log(f"  Acquired room tile")
+        # Count usable slots (empty slots in rooms we have tiles for)
+        usable_slots = sum(1 for slot in board.slots
+                         if slot.is_empty() and
+                         slot.get_property("room") in self.room_tiles)
 
+        # ONLY acquire room tile if we're BLOCKED (have commissionable works but NO usable slots)
+        if commissionable_works and usable_slots == 0:
+            # We're completely blocked! Find a room without a tile
+            rooms_without_tiles = set()
+            for slot in board.slots:
+                if slot.is_empty():
+                    room_name = slot.get_property("room")
+                    if room_name not in self.room_tiles:
+                        rooms_without_tiles.add(room_name)
+
+            if rooms_without_tiles:
+                room_to_acquire = list(rooms_without_tiles)[0]
+                if self.ai_strategy:
+                    should_acquire = self.ai_strategy.should_acquire_room_tile(self, game, room_to_acquire)
+                else:
+                    should_acquire = len(self.hand.cards) >= 2
+
+                if should_acquire and self._try_acquire_room_tile(game, room_to_acquire):
+                    game.log(f"  Acquired room tile (was blocked with {len(commissionable_works)} commissionable works)")
+
+        # Now try to commission up to 2 works
+        works_to_commission = min(2, len(self.hand.cards))
         for _ in range(works_to_commission):
             if not self.hand.cards:
                 break
@@ -912,6 +928,121 @@ class ModernismeAdvancedGame(Game):
             return tile
         return None
 
+    def use_advantage_card(self, player: ModernismeAdvancedPlayer, card: Card, phase: str) -> bool:
+        """
+        Use an advantage card and apply its effect.
+
+        Args:
+            player: The player using the card
+            card: The advantage card to use
+            phase: Current game phase
+
+        Returns:
+            True if card was successfully used, False otherwise
+        """
+        card_type = card.get_property("advantage_type")
+        self.log(f"    {player.name} uses advantage card: {card.name}")
+
+        if card_type == AdvantageCardType.UNIVERSAL_EXHIBITION:
+            # Redraw hand once
+            work_deck = self.get_deck("works")
+            cards_to_return = len(player.hand.cards)
+            returned = []
+            for _ in range(cards_to_return):
+                if player.hand.cards:
+                    c = player.hand.cards[0]
+                    player.hand.remove_card(c)
+                    returned.append(c)
+
+            # Shuffle returned cards back
+            work_deck.cards.extend(returned)
+            work_deck.shuffle()
+
+            # Draw new hand
+            work_deck.draw_to_hand(player.hand, cards_to_return)
+            self.log(f"      → Redrew {cards_to_return} cards")
+            return True
+
+        elif card_type == AdvantageCardType.PATRONAGE:
+            # Change both active artists
+            artist_deck = self.get_deck("artists")
+            if len(artist_deck.cards) >= 2:
+                old_artists = player.active_artists[:]
+                player.active_artists = artist_deck.draw(2)
+                self.artist_discard.extend(old_artists)
+                self.log(f"      → Replaced both artists: {[a.name for a in player.active_artists]}")
+                return True
+            return False
+
+        elif card_type == AdvantageCardType.CHURCH_VISIT:
+            # Rearrange artist discard pile - for AI, just shuffle
+            random.shuffle(self.artist_discard)
+            self.log(f"      → Rearranged artist discard pile")
+            return True
+
+        elif card_type == AdvantageCardType.IDEA_EXCHANGE:
+            # Trade card with opponent - simplified: swap a random card
+            if len(self.players) > 1:
+                opponent = random.choice([p for p in self.players if p != player])
+                if player.hand.cards and opponent.hand.cards:
+                    player_card = random.choice(player.hand.cards)
+                    opponent_card = random.choice(opponent.hand.cards)
+                    player.hand.remove_card(player_card)
+                    opponent.hand.remove_card(opponent_card)
+                    player.hand.add_card(opponent_card)
+                    opponent.hand.add_card(player_card)
+                    self.log(f"      → Swapped cards with {opponent.name}")
+                    return True
+            return False
+
+        elif card_type == AdvantageCardType.ESPIONAGE:
+            # Take from opponent's discard
+            if len(self.players) > 1:
+                opponents_with_discards = [p for p in self.players if p != player and p.discard_pile]
+                if opponents_with_discards:
+                    opponent = random.choice(opponents_with_discards)
+                    stolen_card = opponent.discard_pile.pop()
+                    player.hand.add_card(stolen_card)
+                    self.log(f"      → Took {stolen_card.name} from {opponent.name}'s discard")
+                    return True
+            return False
+
+        elif card_type == AdvantageCardType.PLAN_CHANGE:
+            # Return placed work to hand
+            board = self.get_board(f"{player.name}_board")
+            if board:
+                occupied_slots = [s for s in board.slots if not s.is_empty()]
+                if occupied_slots:
+                    slot = random.choice(occupied_slots)
+                    work = slot.get_cards()[0]
+                    slot.remove_card(work)
+                    player.hand.add_card(work)
+                    # Deduct the VP that was earned
+                    work_vp = work.get_property("vp", 0)
+                    player.add_score(-work_vp)
+                    self.log(f"      → Returned {work.name} to hand, deducted {work_vp} VP")
+                    return True
+            return False
+
+        elif card_type == AdvantageCardType.REMODELING:
+            # Move two placed works - simplified: just log for now
+            self.log(f"      → Remodeling (effect not fully implemented)")
+            return True
+
+        elif card_type == AdvantageCardType.REFORM:
+            # Refresh room tiles
+            if len(self.available_room_tiles) > 0 and len(self.room_tile_bag) > 0:
+                # Return all available tiles to bag
+                self.room_tile_bag.extend(self.available_room_tiles)
+                random.shuffle(self.room_tile_bag)
+                # Draw new tiles
+                self.available_room_tiles = [self.room_tile_bag.pop() for _ in range(min(5, len(self.room_tile_bag)))]
+                self.log(f"      → Refreshed room tile market")
+                return True
+            return False
+
+        return False
+
     def handle_milestone_reward(self, player: ModernismeAdvancedPlayer) -> None:
         """Handle giving advantage card when player reaches milestone."""
         if self.available_advantages:
@@ -937,21 +1068,87 @@ class ModernismeAdvancedGame(Game):
                 self.available_advantages.append(new_card)
                 self.log(f"      Market replenished with {new_card.name}")
 
-    def play_talent_hunt_phase(self, player: ModernismeAdvancedPlayer) -> None:
-        """Execute the talent hunt phase."""
+    def play_talent_hunt_phase(self, player: ModernismeAdvancedPlayer, neighbor: Optional[ModernismeAdvancedPlayer] = None) -> None:
+        """Execute the talent hunt phase with neighbor interaction."""
         artist_deck = self.get_deck("artists")
 
+        # Reshuffle if needed
         if artist_deck.is_empty():
             artist_deck.cards = self.artist_discard[:-1]
             artist_deck.shuffle()
             self.artist_discard = [self.artist_discard[-1]]
 
-        new_artist = artist_deck.draw(1)[0]
-        old_artist = player.active_artists[0]
-        player.active_artists[0] = new_artist
-        self.artist_discard.append(old_artist)
+        # Draw 2 artists for player to choose from
+        drawn_artists = artist_deck.draw(min(2, len(artist_deck.cards)))
+        if len(drawn_artists) < 2 and not artist_deck.is_empty():
+            # If we only got 1, try to draw another after reshuffling
+            if artist_deck.is_empty():
+                artist_deck.cards = self.artist_discard[:-1]
+                artist_deck.shuffle()
+                self.artist_discard = [self.artist_discard[-1]]
+            if not artist_deck.is_empty():
+                drawn_artists.extend(artist_deck.draw(1))
 
-        self.log(f"  {player.name} hired {new_artist.name}, dismissed {old_artist.name}")
+        if not drawn_artists:
+            self.log(f"  No artists available to hire!")
+            return
+
+        self.log(f"  Available artists: {[a.name for a in drawn_artists]}")
+
+        # Player selects which artist to hire
+        if player.ai_strategy and len(drawn_artists) > 1:
+            selected_artist = player.ai_strategy.select_artist_to_hire(player, self, drawn_artists)
+        else:
+            selected_artist = drawn_artists[0]
+
+        # Player selects which of their active artists to dismiss
+        if player.ai_strategy:
+            artist_to_dismiss = player.ai_strategy.select_artist_to_dismiss(player, self, player.active_artists, selected_artist)
+        else:
+            artist_to_dismiss = player.active_artists[0]
+
+        # Replace the dismissed artist with the new one
+        dismiss_index = player.active_artists.index(artist_to_dismiss)
+        player.active_artists[dismiss_index] = selected_artist
+
+        self.log(f"  {player.name} hired {selected_artist.name}, dismissed {artist_to_dismiss.name}")
+
+        # Prepare options for neighbor to steal
+        unchosen_artists = [a for a in drawn_artists if a != selected_artist]
+        available_for_neighbor = unchosen_artists + [artist_to_dismiss]
+
+        # Neighbor can steal one of the unchosen or dismissed artists
+        if neighbor and available_for_neighbor:
+            self.log(f"  {neighbor.name} can steal from: {[a.name for a in available_for_neighbor]}")
+
+            if neighbor.ai_strategy:
+                stolen_artist = neighbor.ai_strategy.steal_artist_from_neighbor(neighbor, self, available_for_neighbor)
+            else:
+                # Random chance to steal (30% chance)
+                stolen_artist = random.choice(available_for_neighbor) if random.random() < 0.3 else None
+
+            if stolen_artist:
+                # Neighbor steals the artist
+                available_for_neighbor.remove(stolen_artist)
+
+                # Neighbor must dismiss one of their artists
+                if neighbor.ai_strategy:
+                    neighbor_dismisses = neighbor.ai_strategy.select_artist_to_dismiss(neighbor, self, neighbor.active_artists, stolen_artist)
+                else:
+                    neighbor_dismisses = neighbor.active_artists[0]
+
+                dismiss_index = neighbor.active_artists.index(neighbor_dismisses)
+                neighbor.active_artists[dismiss_index] = stolen_artist
+
+                self.log(f"  → {neighbor.name} stole {stolen_artist.name}, dismissed {neighbor_dismisses.name}")
+
+                # Neighbor's dismissed artist goes to discard
+                self.artist_discard.append(neighbor_dismisses)
+
+        # All remaining artists go to discard
+        for artist in available_for_neighbor:
+            self.artist_discard.append(artist)
+            self.log(f"  {artist.name} → artist discard pile")
 
     def end_season(self) -> None:
         """Handle end of season."""
@@ -1257,13 +1454,38 @@ def play_modernisme_advanced_game(log_file: Optional[TextIO] = None, num_players
             hand_cards = [f"{card.name} ({card.get_property('vp', 0)} VP)" for card in player.hand.cards]
             game.log(f"  {', '.join(hand_cards)}")
 
+            # Check for advantage card usage before talent hunt
+            if player.advantage_cards and player.ai_strategy:
+                card_to_use = player.ai_strategy.should_use_advantage_card(player, game, 'before_talent_hunt')
+                if card_to_use and card_to_use in player.advantage_cards:
+                    if game.use_advantage_card(player, card_to_use, 'before_talent_hunt'):
+                        player.advantage_cards.remove(card_to_use)
+
             game.log("\nPhase 1: Talent Hunt")
-            game.play_talent_hunt_phase(player)
+            # Determine the next player (neighbor) for artist stealing
+            next_player_idx = (player_idx + 1) % len(game.players)
+            neighbor = game.players[next_player_idx]
+            game.play_talent_hunt_phase(player, neighbor)
+
+            # Check for advantage card usage before placement
+            if player.advantage_cards and player.ai_strategy:
+                card_to_use = player.ai_strategy.should_use_advantage_card(player, game, 'before_placement')
+                if card_to_use and card_to_use in player.advantage_cards:
+                    if game.use_advantage_card(player, card_to_use, 'before_placement'):
+                        player.advantage_cards.remove(card_to_use)
 
             game.log("Phase 2: Placement (including room tile acquisition)")
             game.log(f"  Active artists: {[a.name for a in player.active_artists]}")
             game.log(f"  Room tiles owned: {list(player.room_tiles.keys())}")
+            game.log(f"  Advantage cards held: {len(player.advantage_cards)}")
             player.strategy(game)
+
+            # Check for advantage card usage after placement
+            if player.advantage_cards and player.ai_strategy:
+                card_to_use = player.ai_strategy.should_use_advantage_card(player, game, 'after_placement')
+                if card_to_use and card_to_use in player.advantage_cards:
+                    if game.use_advantage_card(player, card_to_use, 'after_placement'):
+                        player.advantage_cards.remove(card_to_use)
 
             game.log(f"\nHand at end of turn ({len(player.hand)} cards):")
             hand_cards = [f"{card.name} ({card.get_property('vp', 0)} VP)" for card in player.hand.cards]

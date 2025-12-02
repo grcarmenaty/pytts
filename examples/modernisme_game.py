@@ -730,27 +730,87 @@ class ModernismeGame(Game):
 
         return board
 
-    def play_talent_hunt_phase(self, player: ModernismePlayer) -> None:
-        """Execute the talent hunt phase for a player."""
+    def play_talent_hunt_phase(self, player: ModernismePlayer, neighbor: Optional[ModernismePlayer] = None) -> None:
+        """Execute the talent hunt phase with neighbor interaction."""
         artist_deck = self.get_deck("artists")
 
-        # Draw new artist
+        # Reshuffle if needed
         if artist_deck.is_empty():
-            # Reshuffle discards
-            artist_deck.cards = self.artist_discard[:-1]  # Keep top card
+            artist_deck.cards = self.artist_discard[:-1]
             artist_deck.shuffle()
             self.artist_discard = [self.artist_discard[-1]]
 
-        new_artist = artist_deck.draw(1)[0]
+        # Draw 2 artists for player to choose from
+        drawn_artists = artist_deck.draw(min(2, len(artist_deck.cards)))
+        if len(drawn_artists) < 2 and not artist_deck.is_empty():
+            # If we only got 1, try to draw another after reshuffling
+            if artist_deck.is_empty():
+                artist_deck.cards = self.artist_discard[:-1]
+                artist_deck.shuffle()
+                self.artist_discard = [self.artist_discard[-1]]
+            if not artist_deck.is_empty():
+                drawn_artists.extend(artist_deck.draw(1))
 
-        # Player chooses which artist to replace (simplified: replace first)
-        old_artist = player.active_artists[0]
-        player.active_artists[0] = new_artist
+        if not drawn_artists:
+            self.log(f"  No artists available to hire!")
+            return
 
-        # Discard old artist
-        self.artist_discard.append(old_artist)
+        self.log(f"  Available artists: {[a.name for a in drawn_artists]}")
 
-        self.log(f"  {player.name} hired {new_artist.name}, dismissed {old_artist.name}")
+        # Player selects which artist to hire
+        if player.ai_strategy and len(drawn_artists) > 1:
+            selected_artist = player.ai_strategy.select_artist_to_hire(player, self, drawn_artists)
+        else:
+            selected_artist = drawn_artists[0]
+
+        # Player selects which of their active artists to dismiss
+        if player.ai_strategy:
+            artist_to_dismiss = player.ai_strategy.select_artist_to_dismiss(player, self, player.active_artists, selected_artist)
+        else:
+            artist_to_dismiss = player.active_artists[0]
+
+        # Replace the dismissed artist with the new one
+        dismiss_index = player.active_artists.index(artist_to_dismiss)
+        player.active_artists[dismiss_index] = selected_artist
+
+        self.log(f"  {player.name} hired {selected_artist.name}, dismissed {artist_to_dismiss.name}")
+
+        # Prepare options for neighbor to steal
+        unchosen_artists = [a for a in drawn_artists if a != selected_artist]
+        available_for_neighbor = unchosen_artists + [artist_to_dismiss]
+
+        # Neighbor can steal one of the unchosen or dismissed artists
+        if neighbor and available_for_neighbor:
+            self.log(f"  {neighbor.name} can steal from: {[a.name for a in available_for_neighbor]}")
+
+            if neighbor.ai_strategy:
+                stolen_artist = neighbor.ai_strategy.steal_artist_from_neighbor(neighbor, self, available_for_neighbor)
+            else:
+                # Random chance to steal (30% chance)
+                stolen_artist = random.choice(available_for_neighbor) if random.random() < 0.3 else None
+
+            if stolen_artist:
+                # Neighbor steals the artist
+                available_for_neighbor.remove(stolen_artist)
+
+                # Neighbor must dismiss one of their artists
+                if neighbor.ai_strategy:
+                    neighbor_dismisses = neighbor.ai_strategy.select_artist_to_dismiss(neighbor, self, neighbor.active_artists, stolen_artist)
+                else:
+                    neighbor_dismisses = neighbor.active_artists[0]
+
+                dismiss_index = neighbor.active_artists.index(neighbor_dismisses)
+                neighbor.active_artists[dismiss_index] = stolen_artist
+
+                self.log(f"  → {neighbor.name} stole {stolen_artist.name}, dismissed {neighbor_dismisses.name}")
+
+                # Neighbor's dismissed artist goes to discard
+                self.artist_discard.append(neighbor_dismisses)
+
+        # All remaining artists go to discard
+        for artist in available_for_neighbor:
+            self.artist_discard.append(artist)
+            self.log(f"  {artist.name} → artist discard pile")
 
     def end_season(self) -> None:
         """Handle end of season: pass discards and refill hands."""
@@ -980,7 +1040,10 @@ def play_modernisme_game(log_file: Optional[TextIO] = None, num_players: int = 4
 
             # Phase 1: Talent Hunt
             game.log("\nPhase 1: Talent Hunt")
-            game.play_talent_hunt_phase(player)
+            # Determine the next player (neighbor) for artist stealing
+            next_player_idx = (player_idx + 1) % len(game.players)
+            neighbor = game.players[next_player_idx]
+            game.play_talent_hunt_phase(player, neighbor)
 
             # Phase 2: Placement
             game.log("Phase 2: Commissioning Works")
