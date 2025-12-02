@@ -430,9 +430,17 @@ def analyze_results(csv_file_path: str):
         strategy_col = f'p{pos}_strategy'
         score_col = f'p{pos}_final_score'
 
+        # Skip if column doesn't exist
+        if strategy_col not in df.columns or score_col not in df.columns:
+            continue
+
         for idx, row in df.iterrows():
             strategy = row[strategy_col]
             score = row[score_col]
+
+            # Skip NaN values (from games with fewer players)
+            if pd.isna(strategy) or pd.isna(score):
+                continue
 
             if strategy not in strategy_scores:
                 strategy_scores[strategy] = []
@@ -481,7 +489,12 @@ def analyze_results(csv_file_path: str):
 
     for pos in range(1, 5):
         strategy_col = f'p{pos}_strategy'
+        if strategy_col not in df.columns:
+            continue
         for strategy in df[strategy_col]:
+            # Skip NaN values
+            if pd.isna(strategy):
+                continue
             # Overall count
             if strategy not in strategy_usage:
                 strategy_usage[strategy] = 0
@@ -518,13 +531,20 @@ def analyze_results(csv_file_path: str):
         winner_strategy = row['winner_strategy']
         winner_pos = row['winner_position']
 
-        # Get all strategies in this game
-        strategies = [row[f'p{pos}_strategy'] for pos in range(1, 5)]
+        # Skip if winner strategy is NaN
+        if pd.isna(winner_strategy):
+            continue
+
+        # Collect strategies, skipping NaN values
+        strategies = []
+        for pos in range(1, 5):
+            col = f'p{pos}_strategy'
+            if col in df.columns and not pd.isna(row[col]):
+                strategies.append((pos, row[col]))
 
         # Record win for winner against all opponents
-        for pos in range(1, 5):
+        for pos, opponent in strategies:
             if pos != winner_pos:
-                opponent = strategies[pos - 1]
                 h2h_matrix[winner_strategy][opponent]['wins'] += 1
                 h2h_matrix[winner_strategy][opponent]['games'] += 1
                 # Also record loss for opponent

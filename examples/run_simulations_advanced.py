@@ -417,9 +417,17 @@ def analyze_results(csv_file_path: str):
         strategy_col = f'p{pos}_strategy'
         score_col = f'p{pos}_final_score'
 
+        # Skip if column doesn't exist
+        if strategy_col not in df.columns or score_col not in df.columns:
+            continue
+
         for idx, row in df.iterrows():
             strategy = row[strategy_col]
             score = row[score_col]
+
+            # Skip NaN values (from games with fewer players)
+            if pd.isna(strategy) or pd.isna(score):
+                continue
 
             if strategy not in strategy_scores:
                 strategy_scores[strategy] = []
@@ -447,14 +455,21 @@ def analyze_results(csv_file_path: str):
         strategy_col = f'p{pos}_strategy'
         room_tiles_col = f'p{pos}_room_tiles'
 
+        # Skip if columns don't exist
+        if strategy_col not in df.columns or room_tiles_col not in df.columns:
+            continue
+
         for idx, row in df.iterrows():
             strategy = row[strategy_col]
-            if room_tiles_col in row:
-                room_tiles = row[room_tiles_col]
+            room_tiles = row[room_tiles_col]
 
-                if strategy not in room_tile_stats:
-                    room_tile_stats[strategy] = []
-                room_tile_stats[strategy].append(room_tiles)
+            # Skip NaN values
+            if pd.isna(strategy) or pd.isna(room_tiles):
+                continue
+
+            if strategy not in room_tile_stats:
+                room_tile_stats[strategy] = []
+            room_tile_stats[strategy].append(room_tiles)
 
     if room_tile_stats:
         print(f"\n{'Strategy':<30} {'Avg Tiles':>12} {'Min':>8} {'Max':>8}")
@@ -497,7 +512,12 @@ def analyze_results(csv_file_path: str):
     strategy_usage = {}
     for pos in range(1, 5):
         strategy_col = f'p{pos}_strategy'
+        if strategy_col not in df.columns:
+            continue
         for strategy in df[strategy_col]:
+            # Skip NaN values
+            if pd.isna(strategy):
+                continue
             if strategy not in strategy_usage:
                 strategy_usage[strategy] = 0
             strategy_usage[strategy] += 1
@@ -509,11 +529,19 @@ def analyze_results(csv_file_path: str):
         winner_strategy = row['winner_strategy']
         winner_pos = row['winner_position']
 
-        strategies = [row[f'p{pos}_strategy'] for pos in range(1, 5)]
+        # Skip if winner strategy is NaN
+        if pd.isna(winner_strategy):
+            continue
 
+        # Collect strategies, skipping NaN values
+        strategies = []
         for pos in range(1, 5):
+            col = f'p{pos}_strategy'
+            if col in df.columns and not pd.isna(row[col]):
+                strategies.append((pos, row[col]))
+
+        for pos, opponent in strategies:
             if pos != winner_pos:
-                opponent = strategies[pos - 1]
                 h2h_matrix[winner_strategy][opponent]['wins'] += 1
                 h2h_matrix[winner_strategy][opponent]['games'] += 1
                 h2h_matrix[opponent][winner_strategy]['games'] += 1
