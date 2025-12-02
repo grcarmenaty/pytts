@@ -720,17 +720,32 @@ class SimulationReport:
         for idx, row in self.df.iterrows():
             winner_pos = row['winner_position']
             winner_strategy = row['winner_strategy']
-            strategies = [row[f'p{pos}_strategy'] for pos in range(1, 5)]
+
+            # Skip if winner strategy is NaN
+            if pd.isna(winner_strategy):
+                continue
+
+            # Collect strategies, skipping NaN values
+            strategies = []
+            for pos in range(1, 5):
+                col = f'p{pos}_strategy'
+                if col in self.df.columns and not pd.isna(row[col]):
+                    strategies.append((pos, row[col]))
+
+            # Skip games with missing data
+            if len(strategies) == 0:
+                continue
+
+            # Build position to strategy mapping
+            pos_to_strat = {pos: strat for pos, strat in strategies}
 
             # For each position, record performance against opponents
-            for pos in range(1, 5):
-                my_strategy = strategies[pos - 1]
+            for pos, my_strategy in strategies:
                 did_win = (pos == winner_pos)
 
                 # Against each opponent in this game
-                for opp_pos in range(1, 5):
+                for opp_pos, opponent in strategies:
                     if opp_pos != pos:
-                        opponent = strategies[opp_pos - 1]
                         matchup_matrix[my_strategy][opponent]['games'] += 1
                         if did_win:
                             matchup_matrix[my_strategy][opponent]['wins'] += 1
