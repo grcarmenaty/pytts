@@ -598,20 +598,27 @@ class RoomThemeTypeStrategy(Strategy):
         if len(player.hand.cards) < 3:
             return False
 
-        # Check if this room tile would enable immediate placements
         board = game.get_board(f"{player.name}_board")
-        if board:
-            # Count how many empty slots are in rooms we have tiles for
-            usable_slots = sum(1 for slot in board.slots
-                             if slot.is_empty() and
-                             slot.get_property("room") in getattr(player, 'room_tiles', {}))
+        if not board:
+            return False
 
-            # If we have plenty of usable slots, don't rush to get more tiles
-            if usable_slots >= 3:
-                return len(player.hand.cards) >= 5
+        # Count current usable slots and commissionable works
+        usable_slots = sum(1 for slot in board.slots
+                         if slot.is_empty() and
+                         slot.get_property("room") in getattr(player, 'room_tiles', {}))
 
-        # Acquire if we have good hand size
-        return len(player.hand.cards) >= 3
+        commissionable_works = self.get_commissionable_works(player)
+
+        # If we have plenty of usable slots relative to our works, be conservative
+        if usable_slots >= len(commissionable_works) + 2:
+            return False
+
+        # If we're running low on slots, acquire
+        if usable_slots <= 1:
+            return True
+
+        # Otherwise, moderate acquisition for room completion strategy
+        return len(player.hand.cards) >= 4
 
     def _analyze_rooms(self, board) -> dict:
         """Analyze the current state of all rooms."""
@@ -790,23 +797,27 @@ class MaxWorksStrategy(Strategy):
         if len(player.hand.cards) < 3:
             return False
 
-        # Check if we're blocked - do we have commissionable works but no rooms?
         board = game.get_board(f"{player.name}_board")
-        if board:
-            usable_slots = sum(1 for slot in board.slots
-                             if slot.is_empty() and
-                             slot.get_property("room") in getattr(player, 'room_tiles', {}))
+        if not board:
+            return False
 
-            # If we have no usable slots, definitely acquire
-            if usable_slots == 0:
-                return True
+        usable_slots = sum(1 for slot in board.slots
+                         if slot.is_empty() and
+                         slot.get_property("room") in getattr(player, 'room_tiles', {}))
 
-            # If we have few slots and many cards, acquire
-            if usable_slots <= 1 and len(player.hand.cards) >= 4:
-                return True
+        commissionable_works = self.get_commissionable_works(player)
 
-        # Default: moderately eager
-        return len(player.hand.cards) >= 4
+        # MaxWorks is more aggressive - wants space for all works
+        # If we have plenty of slots relative to our works, be conservative
+        if usable_slots >= len(commissionable_works) + 3:
+            return False
+
+        # If we're running low on slots, acquire
+        if usable_slots <= 2:
+            return True
+
+        # Acquire if we have many works and moderate slots
+        return len(commissionable_works) >= 3 and len(player.hand.cards) >= 4
 
 
 class HighValueWorksStrategy(Strategy):
@@ -908,16 +919,34 @@ class HighValueWorksStrategy(Strategy):
     ) -> bool:
         """Strategic room tile acquisition for high-VP strategy."""
         # Don't acquire if hand is too small
-        if len(player.hand.cards) < 4:
+        if len(player.hand.cards) < 3:
             return False
 
-        # Check if we have high-VP works in hand that need this room
-        high_vp_works = [c for c in player.hand.cards if c.get_property("vp", 0) >= 3]
-        if len(high_vp_works) >= 2:
-            # Worth acquiring to enable high-VP placement
+        board = game.get_board(f"{player.name}_board")
+        if not board:
+            return False
+
+        usable_slots = sum(1 for slot in board.slots
+                         if slot.is_empty() and
+                         slot.get_property("room") in getattr(player, 'room_tiles', {}))
+
+        # Count high-VP commissionable works
+        commissionable_works = self.get_commissionable_works(player)
+        high_vp_works = [w for w in commissionable_works if w.get_property("vp", 0) >= 3]
+
+        # If we have plenty of slots relative to works, be conservative
+        if usable_slots >= len(commissionable_works) + 2:
+            return False
+
+        # Prioritize acquiring if we have high-VP works to place
+        if len(high_vp_works) >= 2 and usable_slots <= 2:
             return True
 
-        # Otherwise be conservative
+        # If running low on slots, acquire
+        if usable_slots <= 1:
+            return True
+
+        # Otherwise be conservative (high VP works are scarce)
         return len(player.hand.cards) >= 5
 
 
@@ -1045,7 +1074,29 @@ class ModaTemaStrategy(Strategy):
         room_name: str
     ) -> bool:
         """Moderate acquisition - focus on getting theme-matching tiles."""
-        return len(player.hand.cards) >= 3
+        if len(player.hand.cards) < 3:
+            return False
+
+        board = game.get_board(f"{player.name}_board")
+        if not board:
+            return False
+
+        usable_slots = sum(1 for slot in board.slots
+                         if slot.is_empty() and
+                         slot.get_property("room") in getattr(player, 'room_tiles', {}))
+
+        commissionable_works = self.get_commissionable_works(player)
+
+        # If we have plenty of slots relative to works, be conservative
+        if usable_slots >= len(commissionable_works) + 2:
+            return False
+
+        # If running low, acquire
+        if usable_slots <= 1:
+            return True
+
+        # Moderate acquisition
+        return len(player.hand.cards) >= 4
 
 
 class ModaConjuntoStrategy(Strategy):
@@ -1207,8 +1258,30 @@ class ModaConjuntoStrategy(Strategy):
         game: 'ModernismeGame',
         room_name: str
     ) -> bool:
-        """Moderate acquisition."""
-        return len(player.hand.cards) >= 3
+        """Moderate acquisition for set fashion strategy."""
+        if len(player.hand.cards) < 3:
+            return False
+
+        board = game.get_board(f"{player.name}_board")
+        if not board:
+            return False
+
+        usable_slots = sum(1 for slot in board.slots
+                         if slot.is_empty() and
+                         slot.get_property("room") in getattr(player, 'room_tiles', {}))
+
+        commissionable_works = self.get_commissionable_works(player)
+
+        # If we have plenty of slots relative to works, be conservative
+        if usable_slots >= len(commissionable_works) + 2:
+            return False
+
+        # If running low, acquire
+        if usable_slots <= 1:
+            return True
+
+        # Moderate acquisition
+        return len(player.hand.cards) >= 4
 
 
 class EncargoStrategy(Strategy):
@@ -1409,8 +1482,30 @@ class EncargoStrategy(Strategy):
         game: 'ModernismeGame',
         room_name: str
     ) -> bool:
-        """Moderate acquisition."""
-        return len(player.hand.cards) >= 3
+        """Moderate acquisition for commission strategy."""
+        if len(player.hand.cards) < 3:
+            return False
+
+        board = game.get_board(f"{player.name}_board")
+        if not board:
+            return False
+
+        usable_slots = sum(1 for slot in board.slots
+                         if slot.is_empty() and
+                         slot.get_property("room") in getattr(player, 'room_tiles', {}))
+
+        commissionable_works = self.get_commissionable_works(player)
+
+        # If we have plenty of slots relative to works, be conservative
+        if usable_slots >= len(commissionable_works) + 2:
+            return False
+
+        # If running low, acquire
+        if usable_slots <= 1:
+            return True
+
+        # Moderate acquisition
+        return len(player.hand.cards) >= 4
 
 
 class RandomStrategy(Strategy):

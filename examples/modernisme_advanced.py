@@ -130,41 +130,30 @@ class ModernismeAdvancedPlayer(Player):
         """AI strategy for advanced Modernisme."""
         board = game.get_board(f"{self.name}_board")
 
-        # First, identify ALL works in hand that can be commissioned
-        commissionable_works = []
-        for work in self.hand.cards:
-            work_type = work.get_property("art_type")
-            can_commission = any(
-                artist.get_property("art_type") == work_type
-                for artist in self.active_artists
-            )
-            if can_commission:
-                commissionable_works.append(work)
+        # Check if we should acquire a room tile based on strategy
+        rooms_without_tiles = set()
+        for slot in board.slots:
+            if slot.is_empty():
+                room_name = slot.get_property("room")
+                if room_name not in self.room_tiles:
+                    rooms_without_tiles.add(room_name)
 
-        # Count usable slots (empty slots in rooms we have tiles for)
-        usable_slots = sum(1 for slot in board.slots
-                         if slot.is_empty() and
-                         slot.get_property("room") in self.room_tiles)
+        # Consider acquiring a room tile if we need one
+        if rooms_without_tiles and len(self.hand.cards) >= 2:
+            # Pick a room to potentially acquire (strategy can decide if it's worthwhile)
+            room_to_acquire = list(rooms_without_tiles)[0]
 
-        # ONLY acquire room tile if we're BLOCKED (have commissionable works but NO usable slots)
-        if commissionable_works and usable_slots == 0:
-            # We're completely blocked! Find a room without a tile
-            rooms_without_tiles = set()
-            for slot in board.slots:
-                if slot.is_empty():
-                    room_name = slot.get_property("room")
-                    if room_name not in self.room_tiles:
-                        rooms_without_tiles.add(room_name)
+            if self.ai_strategy:
+                should_acquire = self.ai_strategy.should_acquire_room_tile(self, game, room_to_acquire)
+            else:
+                # Default: only acquire if low on usable slots
+                usable_slots = sum(1 for slot in board.slots
+                                 if slot.is_empty() and
+                                 slot.get_property("room") in self.room_tiles)
+                should_acquire = usable_slots < 2 and len(self.hand.cards) >= 3
 
-            if rooms_without_tiles:
-                room_to_acquire = list(rooms_without_tiles)[0]
-                if self.ai_strategy:
-                    should_acquire = self.ai_strategy.should_acquire_room_tile(self, game, room_to_acquire)
-                else:
-                    should_acquire = len(self.hand.cards) >= 2
-
-                if should_acquire and self._try_acquire_room_tile(game, room_to_acquire):
-                    game.log(f"  Acquired room tile (was blocked with {len(commissionable_works)} commissionable works)")
+            if should_acquire and self._try_acquire_room_tile(game, room_to_acquire):
+                game.log(f"  Acquired room tile for strategic positioning")
 
         # Now try to commission up to 2 works
         works_to_commission = min(2, len(self.hand.cards))
