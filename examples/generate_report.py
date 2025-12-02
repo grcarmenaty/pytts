@@ -89,18 +89,31 @@ class SimulationReport:
             bottomMargin=18,
         )
 
-        # Build report sections
+        # Build report sections in logical order
         self._add_title_page()
         self._add_executive_summary()
-        self._add_player_count_analysis()
-        self._add_works_and_vp_statistics()
-        self._add_advanced_mode_statistics()
-        self._add_strategy_matchups_by_player_count()
+
+        # Part 1: Overview
+        self._add_game_overview_statistics()
+
+        # Part 2: Strategy Performance
+        self._add_strategy_performance_overview()
         self._add_strategy_analysis()
+
+        # Part 3: Multi-Player & Matchups
+        self._add_player_count_analysis()
+        self._add_strategy_matchups_by_player_count()
         self._add_head_to_head_analysis()
-        self._add_matchup_analysis()
+
+        # Part 4: Gameplay Statistics
+        self._add_works_and_vp_statistics()
+        self._add_art_type_theme_analysis()
+
+        # Part 5: Advanced Mode (if applicable)
+        self._add_advanced_mode_statistics()
+
+        # Part 6: Position & Insights
         self._add_position_analysis()
-        self._add_vp_analysis()
         self._add_key_insights()
 
         # Build PDF
@@ -176,6 +189,322 @@ class SimulationReport:
 
         self.story.append(Paragraph(summary_text, self.styles['BodyText']))
         self.story.append(Spacer(1, 0.3*inch))
+
+    def _add_game_overview_statistics(self):
+        """Add comprehensive game overview with visualizations."""
+        self.story.append(PageBreak())
+
+        title = Paragraph("Game Overview Statistics", self.styles['CustomHeading'])
+        self.story.append(title)
+        self.story.append(Spacer(1, 0.2*inch))
+
+        # Score distribution histogram
+        subtitle = Paragraph("Winning Score Distribution", self.styles['Heading2'])
+        self.story.append(subtitle)
+        self.story.append(Spacer(1, 0.1*inch))
+
+        fig, ax = plt.subplots(figsize=(8, 4))
+        self.df['winner_score'].hist(bins=30, ax=ax, color='#1f4788', edgecolor='black')
+        ax.set_xlabel('Winning Score (VP)')
+        ax.set_ylabel('Frequency')
+        ax.set_title('Distribution of Winning Scores')
+        ax.grid(axis='y', alpha=0.3)
+
+        # Add mean and median lines
+        mean_score = self.df['winner_score'].mean()
+        median_score = self.df['winner_score'].median()
+        ax.axvline(mean_score, color='red', linestyle='--', label=f'Mean: {mean_score:.1f}')
+        ax.axvline(median_score, color='green', linestyle='--', label=f'Median: {median_score:.1f}')
+        ax.legend()
+
+        img_path = f"{self.temp_dir}/score_distribution.png"
+        plt.tight_layout()
+        plt.savefig(img_path, dpi=150, bbox_inches='tight')
+        plt.close()
+
+        self.story.append(Image(img_path, width=6*inch, height=3*inch))
+        self.story.append(Spacer(1, 0.2*inch))
+
+        # Player count distribution
+        subtitle = Paragraph("Games by Player Count", self.styles['Heading2'])
+        self.story.append(subtitle)
+        self.story.append(Spacer(1, 0.1*inch))
+
+        # Count games by player count
+        player_counts = []
+        for idx, row in self.df.iterrows():
+            num_players = sum(1 for pos in range(1, 5)
+                            if f'p{pos}_strategy' in self.df.columns
+                            and not pd.isna(row[f'p{pos}_strategy']))
+            player_counts.append(num_players)
+
+        player_count_series = pd.Series(player_counts)
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
+
+        # Bar chart
+        counts = player_count_series.value_counts().sort_index()
+        ax1.bar(counts.index, counts.values, color=['#1f4788', '#2c5f2d', '#8b4513'], edgecolor='black')
+        ax1.set_xlabel('Number of Players')
+        ax1.set_ylabel('Number of Games')
+        ax1.set_title('Games Distribution by Player Count')
+        ax1.set_xticks([2, 3, 4])
+        ax1.grid(axis='y', alpha=0.3)
+
+        # Pie chart
+        ax2.pie(counts.values, labels=[f'{int(k)}P' for k in counts.index],
+                autopct='%1.1f%%', colors=['#1f4788', '#2c5f2d', '#8b4513'],
+                startangle=90)
+        ax2.set_title('Player Count Proportions')
+
+        img_path = f"{self.temp_dir}/player_count_dist.png"
+        plt.tight_layout()
+        plt.savefig(img_path, dpi=150, bbox_inches='tight')
+        plt.close()
+
+        self.story.append(Image(img_path, width=6.5*inch, height=3*inch))
+        self.story.append(Spacer(1, 0.2*inch))
+
+    def _add_strategy_performance_overview(self):
+        """Add visual overview of strategy performance."""
+        self.story.append(PageBreak())
+
+        title = Paragraph("Strategy Performance Overview", self.styles['CustomHeading'])
+        self.story.append(title)
+        self.story.append(Spacer(1, 0.2*inch))
+
+        # Calculate strategy statistics
+        strategy_stats = {}
+        for pos in range(1, 5):
+            strategy_col = f'p{pos}_strategy'
+            score_col = f'p{pos}_final_score'
+
+            if strategy_col not in self.df.columns or score_col not in self.df.columns:
+                continue
+
+            for idx, row in self.df.iterrows():
+                strategy = row[strategy_col]
+                score = row[score_col]
+
+                if pd.isna(strategy) or pd.isna(score):
+                    continue
+
+                if strategy not in strategy_stats:
+                    strategy_stats[strategy] = {'wins': 0, 'games': 0, 'total_score': 0}
+
+                strategy_stats[strategy]['games'] += 1
+                strategy_stats[strategy]['total_score'] += score
+
+                if row['winner_strategy'] == strategy:
+                    strategy_stats[strategy]['wins'] += 1
+
+        # Win rates bar chart
+        subtitle = Paragraph("Overall Win Rates by Strategy", self.styles['Heading2'])
+        self.story.append(subtitle)
+        self.story.append(Spacer(1, 0.1*inch))
+
+        strategies = sorted(strategy_stats.keys())
+        win_rates = [(strategy_stats[s]['wins'] / strategy_stats[s]['games'] * 100)
+                     for s in strategies]
+
+        fig, ax = plt.subplots(figsize=(10, 5))
+        bars = ax.barh(strategies, win_rates, color='#1f4788', edgecolor='black')
+
+        # Color code bars by performance
+        for i, bar in enumerate(bars):
+            if win_rates[i] > 30:
+                bar.set_color('#2c5f2d')  # Green for high performers
+            elif win_rates[i] < 20:
+                bar.set_color('#8b4513')  # Brown for low performers
+
+        ax.set_xlabel('Win Rate (%)')
+        ax.set_title('Strategy Win Rates (Expected: 25% in 4-player games)')
+        ax.axvline(25, color='red', linestyle='--', linewidth=2, label='Expected (25%)')
+        ax.legend()
+        ax.grid(axis='x', alpha=0.3)
+
+        # Add value labels
+        for i, (strategy, rate) in enumerate(zip(strategies, win_rates)):
+            ax.text(rate + 0.5, i, f'{rate:.1f}%', va='center', fontsize=9)
+
+        img_path = f"{self.temp_dir}/win_rates.png"
+        plt.tight_layout()
+        plt.savefig(img_path, dpi=150, bbox_inches='tight')
+        plt.close()
+
+        self.story.append(Image(img_path, width=6.5*inch, height=4*inch))
+        self.story.append(Spacer(1, 0.2*inch))
+
+        # Average scores bar chart
+        subtitle = Paragraph("Average Scores by Strategy", self.styles['Heading2'])
+        self.story.append(subtitle)
+        self.story.append(Spacer(1, 0.1*inch))
+
+        avg_scores = [(strategy_stats[s]['total_score'] / strategy_stats[s]['games'])
+                      for s in strategies]
+
+        fig, ax = plt.subplots(figsize=(10, 5))
+        bars = ax.barh(strategies, avg_scores, color='#2c5f2d', edgecolor='black')
+        ax.set_xlabel('Average Score (VP)')
+        ax.set_title('Average Scores by Strategy')
+        ax.grid(axis='x', alpha=0.3)
+
+        # Add value labels
+        for i, (strategy, score) in enumerate(zip(strategies, avg_scores)):
+            ax.text(score + 0.5, i, f'{score:.1f}', va='center', fontsize=9)
+
+        img_path = f"{self.temp_dir}/avg_scores.png"
+        plt.tight_layout()
+        plt.savefig(img_path, dpi=150, bbox_inches='tight')
+        plt.close()
+
+        self.story.append(Image(img_path, width=6.5*inch, height=4*inch))
+        self.story.append(Spacer(1, 0.3*inch))
+
+        # Performance summary table
+        subtitle = Paragraph("Strategy Performance Summary", self.styles['Heading2'])
+        self.story.append(subtitle)
+        self.story.append(Spacer(1, 0.1*inch))
+
+        table_data = [['Strategy', 'Games', 'Wins', 'Win Rate', 'Avg Score']]
+        for strategy in strategies:
+            stats = strategy_stats[strategy]
+            win_rate = (stats['wins'] / stats['games'] * 100)
+            avg_score = stats['total_score'] / stats['games']
+            table_data.append([
+                strategy,
+                f"{stats['games']:,}",
+                f"{stats['wins']:,}",
+                f"{win_rate:.1f}%",
+                f"{avg_score:.1f}"
+            ])
+
+        table = Table(table_data, colWidths=[2.2*inch, 0.9*inch, 0.9*inch, 1*inch, 1*inch])
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4788')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
+        ]))
+
+        self.story.append(table)
+
+    def _add_art_type_theme_analysis(self):
+        """Add comprehensive art type and theme analysis with visualizations."""
+        self.story.append(PageBreak())
+
+        title = Paragraph("Art Type & Theme Analysis", self.styles['CustomHeading'])
+        self.story.append(title)
+        self.story.append(Spacer(1, 0.2*inch))
+
+        # Collect data by strategy
+        strategy_art_data = {}
+        for pos in range(1, 5):
+            strategy_col = f'p{pos}_strategy'
+            if strategy_col not in self.df.columns:
+                continue
+
+            for idx, row in self.df.iterrows():
+                strategy = row[strategy_col]
+                if pd.isna(strategy):
+                    continue
+
+                if strategy not in strategy_art_data:
+                    strategy_art_data[strategy] = {
+                        'crafts': [], 'painting': [], 'sculpture': [], 'relic': [],
+                        'nature': [], 'mythology': [], 'society': [], 'orientalism': []
+                    }
+
+                # Collect art types
+                for art_type in ['crafts', 'painting', 'sculpture', 'relic']:
+                    col = f'p{pos}_works_{art_type}'
+                    if col in self.df.columns:
+                        strategy_art_data[strategy][art_type].append(row[col])
+
+                # Collect themes
+                for theme in ['nature', 'mythology', 'society', 'orientalism']:
+                    col = f'p{pos}_works_{theme}'
+                    if col in self.df.columns:
+                        strategy_art_data[strategy][theme].append(row[col])
+
+        if strategy_art_data:
+            # Art Type stacked bar chart
+            subtitle = Paragraph("Works by Art Type (Stacked by Strategy)", self.styles['Heading2'])
+            self.story.append(subtitle)
+            self.story.append(Spacer(1, 0.1*inch))
+
+            strategies = sorted(strategy_art_data.keys())
+            art_types = ['crafts', 'painting', 'sculpture', 'relic']
+            art_type_data = {art_type: [np.mean(strategy_art_data[s][art_type])
+                                         if strategy_art_data[s][art_type] else 0
+                                         for s in strategies]
+                            for art_type in art_types}
+
+            fig, ax = plt.subplots(figsize=(10, 6))
+            x = np.arange(len(strategies))
+            width = 0.6
+            bottom = np.zeros(len(strategies))
+
+            colors_map = {'crafts': '#8b4513', 'painting': '#1f4788', 'sculpture': '#2c5f2d', 'relic': '#8b0000'}
+
+            for art_type in art_types:
+                ax.bar(x, art_type_data[art_type], width, label=art_type.capitalize(),
+                      bottom=bottom, color=colors_map[art_type], edgecolor='black')
+                bottom += art_type_data[art_type]
+
+            ax.set_ylabel('Average Works Played')
+            ax.set_title('Art Type Distribution by Strategy')
+            ax.set_xticks(x)
+            ax.set_xticklabels(strategies, rotation=45, ha='right')
+            ax.legend(loc='upper left')
+            ax.grid(axis='y', alpha=0.3)
+
+            img_path = f"{self.temp_dir}/art_types_stacked.png"
+            plt.tight_layout()
+            plt.savefig(img_path, dpi=150, bbox_inches='tight')
+            plt.close()
+
+            self.story.append(Image(img_path, width=6.5*inch, height=4.5*inch))
+            self.story.append(Spacer(1, 0.3*inch))
+
+            # Theme stacked bar chart
+            subtitle = Paragraph("Works by Theme (Stacked by Strategy)", self.styles['Heading2'])
+            self.story.append(subtitle)
+            self.story.append(Spacer(1, 0.1*inch))
+
+            themes = ['nature', 'mythology', 'society', 'orientalism']
+            theme_data = {theme: [np.mean(strategy_art_data[s][theme])
+                                  if strategy_art_data[s][theme] else 0
+                                  for s in strategies]
+                         for theme in themes}
+
+            fig, ax = plt.subplots(figsize=(10, 6))
+            bottom = np.zeros(len(strategies))
+
+            colors_map = {'nature': '#2c5f2d', 'mythology': '#4169e1', 'society': '#8b4513', 'orientalism': '#ff8c00'}
+
+            for theme in themes:
+                ax.bar(x, theme_data[theme], width, label=theme.capitalize(),
+                      bottom=bottom, color=colors_map[theme], edgecolor='black')
+                bottom += theme_data[theme]
+
+            ax.set_ylabel('Average Works Played')
+            ax.set_title('Theme Distribution by Strategy')
+            ax.set_xticks(x)
+            ax.set_xticklabels(strategies, rotation=45, ha='right')
+            ax.legend(loc='upper left')
+            ax.grid(axis='y', alpha=0.3)
+
+            img_path = f"{self.temp_dir}/themes_stacked.png"
+            plt.tight_layout()
+            plt.savefig(img_path, dpi=150, bbox_inches='tight')
+            plt.close()
+
+            self.story.append(Image(img_path, width=6.5*inch, height=4.5*inch))
 
     def _add_player_count_analysis(self):
         """Add analysis broken down by player count."""
@@ -367,6 +696,68 @@ class SimulationReport:
                     col = f'p{pos}_works_{theme}'
                     if col in self.df.columns:
                         strategy_stats[strategy][f'works_{theme}'].append(row[col])
+
+        # VP Earned vs Spent Visualization
+        subtitle = Paragraph("VP Earned vs VP Spent by Strategy", self.styles['Heading2'])
+        self.story.append(subtitle)
+        self.story.append(Spacer(1, 0.1*inch))
+
+        strategies = sorted(strategy_stats.keys())
+        vp_earned = [np.mean(strategy_stats[s]['total_vp_earned']) if strategy_stats[s]['total_vp_earned'] else 0
+                     for s in strategies]
+        vp_spent = [np.mean(strategy_stats[s]['total_vp_spent']) if strategy_stats[s]['total_vp_spent'] else 0
+                    for s in strategies]
+
+        fig, ax = plt.subplots(figsize=(10, 5))
+        x = np.arange(len(strategies))
+        width = 0.35
+
+        ax.barh(x - width/2, vp_earned, width, label='VP Earned', color='#2c5f2d', edgecolor='black')
+        ax.barh(x + width/2, vp_spent, width, label='VP Spent', color='#8b4513', edgecolor='black')
+
+        ax.set_xlabel('Average VP')
+        ax.set_title('VP Economics by Strategy')
+        ax.set_yticks(x)
+        ax.set_yticklabels(strategies)
+        ax.legend()
+        ax.grid(axis='x', alpha=0.3)
+
+        img_path = f"{self.temp_dir}/vp_earned_vs_spent.png"
+        plt.tight_layout()
+        plt.savefig(img_path, dpi=150, bbox_inches='tight')
+        plt.close()
+
+        self.story.append(Image(img_path, width=6.5*inch, height=4*inch))
+        self.story.append(Spacer(1, 0.3*inch))
+
+        # Works Played vs Discarded
+        subtitle = Paragraph("Works Played vs Cards Discarded", self.styles['Heading2'])
+        self.story.append(subtitle)
+        self.story.append(Spacer(1, 0.1*inch))
+
+        works_played = [np.mean(strategy_stats[s]['total_works_played']) if strategy_stats[s]['total_works_played'] else 0
+                        for s in strategies]
+        cards_discarded = [np.mean(strategy_stats[s]['total_cards_discarded']) if strategy_stats[s]['total_cards_discarded'] else 0
+                           for s in strategies]
+
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ax.barh(x - width/2, works_played, width, label='Works Played', color='#1f4788', edgecolor='black')
+        ax.barh(x + width/2, cards_discarded, width, label='Cards Discarded', color='#8b0000', edgecolor='black')
+
+        ax.set_xlabel('Average Cards')
+        ax.set_title('Card Usage by Strategy')
+        ax.set_yticks(x)
+        ax.set_yticklabels(strategies)
+        ax.legend()
+        ax.grid(axis='x', alpha=0.3)
+
+        img_path = f"{self.temp_dir}/works_vs_discarded.png"
+        plt.tight_layout()
+        plt.savefig(img_path, dpi=150, bbox_inches='tight')
+        plt.close()
+
+        self.story.append(Image(img_path, width=6.5*inch, height=4*inch))
+        self.story.append(Spacer(1, 0.3*inch))
 
         # Overall Summary Table
         subtitle = Paragraph("Overall Works & VP Summary by Strategy", self.styles['Heading2'])
@@ -595,6 +986,50 @@ class SimulationReport:
             all_cards = set()
             for cards_dict in advantage_selections.values():
                 all_cards.update(cards_dict.keys())
+
+            # Create heatmap visualization
+            strategies = sorted(advantage_selections.keys())
+            cards = sorted(all_cards)
+
+            # Build matrix for heatmap
+            data_matrix = []
+            for card in cards:
+                row = []
+                for strategy in strategies:
+                    count = advantage_selections[strategy].get(card, 0)
+                    total = total_selections_by_strategy[strategy]
+                    pct = (count / total * 100) if total > 0 else 0
+                    row.append(pct)
+                data_matrix.append(row)
+
+            fig, ax = plt.subplots(figsize=(10, 6))
+            im = ax.imshow(data_matrix, aspect='auto', cmap='YlOrRd')
+
+            # Set ticks
+            ax.set_xticks(np.arange(len(strategies)))
+            ax.set_yticks(np.arange(len(cards)))
+            ax.set_xticklabels(strategies, rotation=45, ha='right')
+            ax.set_yticklabels(cards)
+
+            # Add colorbar
+            cbar = plt.colorbar(im, ax=ax)
+            cbar.set_label('Selection Rate (%)', rotation=270, labelpad=20)
+
+            # Add text annotations
+            for i in range(len(cards)):
+                for j in range(len(strategies)):
+                    text = ax.text(j, i, f'{data_matrix[i][j]:.1f}%',
+                                  ha="center", va="center", color="black", fontsize=8)
+
+            ax.set_title('Advantage Card Selection Preferences (% of total selections)')
+            plt.tight_layout()
+
+            img_path = f"{self.temp_dir}/advantage_cards_heatmap.png"
+            plt.savefig(img_path, dpi=150, bbox_inches='tight')
+            plt.close()
+
+            self.story.append(Image(img_path, width=6.5*inch, height=4.5*inch))
+            self.story.append(Spacer(1, 0.3*inch))
 
             # Create table showing selection frequency
             table_data = [['Advantage Card'] + sorted(advantage_selections.keys())]
