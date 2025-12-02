@@ -318,9 +318,15 @@ class SimulationReport:
         for pos in range(1, 5):
             strategy_col = f'p{pos}_strategy'
             score_col = f'p{pos}_final_score'
+            # Skip if columns don't exist
+            if strategy_col not in self.df.columns or score_col not in self.df.columns:
+                continue
             for _, row in self.df.iterrows():
                 strategy = row[strategy_col]
                 score = row[score_col]
+                # Skip NaN values
+                if pd.isna(strategy) or pd.isna(score):
+                    continue
                 if strategy not in strategy_scores:
                     strategy_scores[strategy] = []
                 strategy_scores[strategy].append(score)
@@ -522,7 +528,12 @@ class SimulationReport:
 
         for pos in range(1, 5):
             strategy_col = f'p{pos}_strategy'
+            if strategy_col not in self.df.columns:
+                continue
             for strategy in self.df[strategy_col]:
+                # Skip NaN values (from games with fewer players)
+                if pd.isna(strategy):
+                    continue
                 if strategy not in strategy_usage:
                     strategy_usage[strategy] = 0
                 strategy_usage[strategy] += 1
@@ -591,7 +602,13 @@ class SimulationReport:
         # Build head-to-head matrix
         strategy_usage = {}
         for pos in range(1, 5):
-            for strategy in self.df[f'p{pos}_strategy']:
+            col = f'p{pos}_strategy'
+            if col not in self.df.columns:
+                continue
+            for strategy in self.df[col]:
+                # Skip NaN values
+                if pd.isna(strategy):
+                    continue
                 strategy_usage[strategy] = True
 
         all_strat_names = sorted(strategy_usage.keys())
@@ -601,11 +618,20 @@ class SimulationReport:
         for idx, row in self.df.iterrows():
             winner_strategy = row['winner_strategy']
             winner_pos = row['winner_position']
-            strategies = [row[f'p{pos}_strategy'] for pos in range(1, 5)]
 
+            # Skip if winner strategy is NaN
+            if pd.isna(winner_strategy):
+                continue
+
+            # Collect strategies, skipping NaN values
+            strategies = []
             for pos in range(1, 5):
+                col = f'p{pos}_strategy'
+                if col in self.df.columns and not pd.isna(row[col]):
+                    strategies.append((pos, row[col]))
+
+            for pos, opponent in strategies:
                 if pos != winner_pos:
-                    opponent = strategies[pos - 1]
                     h2h_matrix[winner_strategy][opponent]['wins'] += 1
                     h2h_matrix[winner_strategy][opponent]['games'] += 1
                     h2h_matrix[opponent][winner_strategy]['games'] += 1
@@ -677,7 +703,13 @@ class SimulationReport:
         # For each strategy, track win rate when each other strategy is in the game as opponent
         strategy_usage = {}
         for pos in range(1, 5):
-            for strategy in self.df[f'p{pos}_strategy']:
+            col = f'p{pos}_strategy'
+            if col not in self.df.columns:
+                continue
+            for strategy in self.df[col]:
+                # Skip NaN values
+                if pd.isna(strategy):
+                    continue
                 strategy_usage[strategy] = True
 
         all_strat_names = sorted(strategy_usage.keys())
@@ -860,7 +892,13 @@ class SimulationReport:
         # Get all strategies
         strategy_usage = {}
         for pos in range(1, 5):
-            for strategy in self.df[f'p{pos}_strategy']:
+            col = f'p{pos}_strategy'
+            if col not in self.df.columns:
+                continue
+            for strategy in self.df[col]:
+                # Skip NaN values
+                if pd.isna(strategy):
+                    continue
                 strategy_usage[strategy] = True
         all_strat_names = sorted(strategy_usage.keys())
 
@@ -870,13 +908,27 @@ class SimulationReport:
 
         for idx, row in self.df.iterrows():
             winner_pos = row['winner_position']
-            strategies = tuple(row[f'p{pos}_strategy'] for pos in range(1, 5))
+
+            # Collect strategies, skipping NaN values
+            strategies = []
+            for pos in range(1, 5):
+                col = f'p{pos}_strategy'
+                if col in self.df.columns:
+                    strat = row[col]
+                    if not pd.isna(strat):
+                        strategies.append((pos, strat))
+
+            # Skip games with fewer players (we need exactly 4 for combination analysis)
+            if len(strategies) != 4:
+                continue
+
+            # Convert to position-indexed list for easier access
+            strat_by_pos = {pos: strat for pos, strat in strategies}
 
             # For each position
-            for pos in range(1, 5):
-                my_strategy = strategies[pos - 1]
-                # Get the 3 opponents (sorted tuple for consistency)
-                opponents = tuple(sorted([strategies[i] for i in range(4) if i != pos - 1]))
+            for pos, my_strategy in strategies:
+                # Get the opponents (sorted tuple for consistency)
+                opponents = tuple(sorted([strat for p, strat in strategies if p != pos]))
 
                 if opponents not in all_matchup_data[my_strategy]:
                     all_matchup_data[my_strategy][opponents] = {'wins': 0, 'games': 0}
