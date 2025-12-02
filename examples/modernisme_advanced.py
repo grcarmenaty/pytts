@@ -78,6 +78,7 @@ class ModernismeAdvancedPlayer(Player):
         # Advanced mode specific
         self.room_tiles: dict = {}  # Maps room name to room tile card
         self.advantage_cards: List[Card] = []  # Advantage cards held
+        self.advantage_cards_selected: List[str] = []  # Track all advantage cards selected during game
         self.vp_milestones: List[int] = [8, 18, 28, 40]  # VP levels that trigger advantage card selection
         self.last_milestone: int = 0  # Track last milestone passed
 
@@ -493,6 +494,7 @@ class ModernismeAdvancedGame(Game):
             data[f'p{position}_total_vp_earned'] = total_vp_earned
             data[f'p{position}_total_vp_spent'] = total_vp_spent
             data[f'p{position}_total_room_tiles_acquired'] = total_room_tiles
+            data[f'p{position}_advantage_cards'] = ','.join(player.advantage_cards_selected)
 
             works_by_type = {}
             for turn in player.turn_stats:
@@ -613,6 +615,7 @@ class ModernismeAdvancedGame(Game):
 
                 self.available_advantages.remove(card)
                 player.advantage_cards.append(card)
+                player.advantage_cards_selected.append(card.name)
                 self.log(f"  → Selected: {card.name}")
 
                 # Replenish
@@ -1049,6 +1052,7 @@ class ModernismeAdvancedGame(Game):
 
             self.available_advantages.remove(card)
             player.advantage_cards.append(card)
+            player.advantage_cards_selected.append(card.name)
             self.log(f"      → Selected advantage card: {card.name}")
 
             # Replenish
