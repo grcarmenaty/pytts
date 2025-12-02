@@ -213,8 +213,16 @@ def aggregate_csvs(logs_dir: Path) -> str:
             if not df.empty:
                 df_list.append(df)
 
-                # Extract strategy combination from this game
-                strategies = tuple(df.iloc[0][f'p{i}_strategy'] for i in range(1, 5))
+                # Extract strategy combination - detect number of players
+                # Count how many p#_strategy columns exist
+                num_players = 0
+                for i in range(1, 5):
+                    if f'p{i}_strategy' in df.columns:
+                        num_players = i
+                    else:
+                        break
+
+                strategies = tuple(df.iloc[0][f'p{i}_strategy'] for i in range(1, num_players + 1))
 
                 # Get corresponding log file (same base name)
                 log_file = csv_file.with_suffix('.log')
