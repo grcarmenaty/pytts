@@ -58,3 +58,9 @@ Thumbs.db
 
 # Simulation logs - exclude game simulation output
 examples/modernisme_logs/
+examples/modernisme_advanced_logs/
+
+# Test reports and aggregated CSV files
+examples/test_report.pdf
+examples/all_games_*.csv
+examples/simulation_report_*.pdf
