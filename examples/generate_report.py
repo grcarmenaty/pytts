@@ -759,18 +759,43 @@ class SimulationReport:
         self.story.append(Spacer(1, 0.1*inch))
 
         explanation = Paragraph(
-            "<b>What this shows:</b> This table displays win rates for each strategy broken down by player count (2P, 3P, 4P). "
-            "Win rates are normalized to show performance relative to expectation: 100% means the strategy won exactly as "
-            "often as expected (50% in 2P, 33% in 3P, 25% in 4P), values above 100% indicate overperformance.<br/><br/>"
+            "<b>What this shows:</b> Actual win rates for each strategy broken down by player count (2P, 3P, 4P). "
+            "Expected win rates are 50% in 2P, 33.3% in 3P, and 25% in 4P games. Values significantly above these "
+            "baselines indicate strong performance.<br/><br/>"
             "<b>How to interpret:</b> Compare horizontally to see how a strategy adapts to different player counts. "
             "Some strategies excel in head-to-head 2P games but struggle in 4P games, or vice versa. A truly robust strategy "
-            "performs well across all player counts (consistently above 100%).<br/><br/>"
+            "performs well across all player counts.<br/><br/>"
             "<b>Why it matters:</b> This reveals strategic versatility. Strategies that only perform well at specific player "
             "counts may have exploitable patterns or require specific opponent configurations to succeed.",
             self.styles['PlotExplanation']
         )
         self.story.append(explanation)
         self.story.append(Spacer(1, 0.2*inch))
+
+        # Calculate actual win rates (not normalized)
+        # Need to track total games each strategy played per player count
+        strategy_participation = {}
+        for pc in [2, 3, 4]:
+            strategy_participation[pc] = {}
+            if pc not in player_count_data:
+                continue
+
+            # Count how many games each strategy participated in
+            for idx, row in self.df.iterrows():
+                num_players = sum(1 for pos in range(1, 5)
+                                if f'p{pos}_strategy' in self.df.columns
+                                and not pd.isna(row[f'p{pos}_strategy']))
+                if num_players != pc:
+                    continue
+
+                for pos in range(1, pc + 1):
+                    strategy_col = f'p{pos}_strategy'
+                    if strategy_col in self.df.columns:
+                        strategy = row[strategy_col]
+                        if not pd.isna(strategy):
+                            if strategy not in strategy_participation[pc]:
+                                strategy_participation[pc][strategy] = 0
+                            strategy_participation[pc][strategy] += 1
 
         # Create win rate visualization
         all_strategies = set()
@@ -779,17 +804,17 @@ class SimulationReport:
 
         strategies = sorted(all_strategies)
         player_counts = [2, 3, 4]
+        expected_rates = {2: 50, 3: 33.3, 4: 25}
 
-        # Build data matrix for visualization
+        # Build data matrix for visualization with actual win rates
         win_rate_matrix = []
         for strategy in strategies:
             strategy_rates = []
             for pc in player_counts:
-                if pc in player_count_data:
+                if pc in player_count_data and strategy in strategy_participation.get(pc, {}):
                     wins = player_count_data[pc]['strategies'].get(strategy, 0)
-                    games = player_count_data[pc]['games']
-                    expected_wins = games / pc
-                    win_rate = (wins / expected_wins * 100) if expected_wins > 0 else 0
+                    games_played = strategy_participation[pc][strategy]
+                    win_rate = (wins / games_played * 100) if games_played > 0 else 0
                     strategy_rates.append(win_rate)
                 else:
                     strategy_rates.append(0)
@@ -807,12 +832,18 @@ class SimulationReport:
         bars3 = ax.bar(x + width, [row[2] for row in win_rate_matrix], width,
                       label='4P Games', color=self.colors['player4'], edgecolor='black', alpha=0.8)
 
-        ax.set_ylabel('Normalized Win Rate (%)', fontsize=self.plot_style['label_fontsize'])
+        ax.set_ylabel('Win Rate (%)', fontsize=self.plot_style['label_fontsize'])
         ax.set_title('Strategy Performance Across Player Counts', fontsize=self.plot_style['title_fontsize'], pad=10)
         ax.set_xticks(x)
         ax.set_xticklabels(strategies, rotation=45, ha='right', fontsize=self.plot_style['tick_fontsize'])
         ax.legend(fontsize=self.plot_style['legend_fontsize'])
-        ax.axhline(100, color='red', linestyle='--', linewidth=1, alpha=0.5, label='Expected (100%)')
+
+        # Add expected win rate lines
+        ax.axhline(50, color='blue', linestyle='--', linewidth=1, alpha=0.3, label='2P Expected (50%)')
+        ax.axhline(33.3, color='green', linestyle='--', linewidth=1, alpha=0.3, label='3P Expected (33%)')
+        ax.axhline(25, color='brown', linestyle='--', linewidth=1, alpha=0.3, label='4P Expected (25%)')
+
+        ax.set_ylim(0, 100)
         ax.grid(axis='y', alpha=0.3)
         ax.tick_params(axis='y', labelsize=self.plot_style['tick_fontsize'])
 
@@ -825,7 +856,8 @@ class SimulationReport:
         self.story.append(Spacer(1, 0.2*inch))
 
         note = Paragraph(
-            "<i>Note: Win rates are normalized by expected performance (100% = performs as expected for that player count).</i>",
+            "<i>Note: Actual win rates shown. Expected rates: 50% (2P), 33.3% (3P), 25% (4P). "
+            "Detailed statistics available in Annexes.</i>",
             self.styles['BodyText']
         )
         self.story.append(note)
@@ -1200,7 +1232,7 @@ class SimulationReport:
                 data_matrix.append(row)
 
             fig, ax = plt.subplots(figsize=(10, 6))
-            im = ax.imshow(data_matrix, aspect='auto', cmap='YlOrRd')
+            im = ax.imshow(data_matrix, aspect='auto', cmap='YlOrRd', vmin=0, vmax=100)
 
             # Set ticks
             ax.set_xticks(np.arange(len(strategies)))
@@ -1341,17 +1373,18 @@ class SimulationReport:
                                 'games': games
                             })
 
-                # Sort by win rate and get top 15 most interesting matchups
+                # Sort by win rate (show ALL matchups, not just top)
                 viz_data.sort(key=lambda x: x['win_rate'], reverse=True)
-                top_viz = viz_data[:15]
 
-                if top_viz:
-                    # Create horizontal bar chart
-                    fig, ax = plt.subplots(figsize=(10, max(6, len(top_viz) * 0.4)))
+                if viz_data:
+                    # Create horizontal bar chart - adjust size based on number of matchups
+                    num_matchups = len(viz_data)
+                    fig_height = max(8, min(30, num_matchups * 0.3))  # Limit max height to 30 inches
+                    fig, ax = plt.subplots(figsize=(10, fig_height))
 
-                    labels = [item['label'] for item in top_viz]
-                    win_rates = [item['win_rate'] for item in top_viz]
-                    games_counts = [item['games'] for item in top_viz]
+                    labels = [item['label'] for item in viz_data]
+                    win_rates = [item['win_rate'] for item in viz_data]
+                    games_counts = [item['games'] for item in viz_data]
 
                     # Color bars based on win rate
                     colors_list = []
@@ -1365,28 +1398,35 @@ class SimulationReport:
 
                     bars = ax.barh(range(len(labels)), win_rates, color=colors_list, edgecolor='black', alpha=0.8)
                     ax.set_yticks(range(len(labels)))
-                    ax.set_yticklabels(labels, fontsize=8)
+
+                    # Adjust font size based on number of matchups
+                    label_fontsize = max(5, min(8, 200 / num_matchups))
+                    ax.set_yticklabels(labels, fontsize=label_fontsize)
+
                     ax.set_xlabel('Win Rate (%)', fontsize=self.plot_style['label_fontsize'])
-                    ax.set_title(f'Top Matchups: {player_count}-Player Games (min 10 games)',
+                    ax.set_title(f'All Matchups: {player_count}-Player Games (min 10 games)',
                                 fontsize=self.plot_style['title_fontsize'], fontweight='bold')
                     ax.axvline(50, color='red', linestyle='--', linewidth=1, alpha=0.5, label='50% baseline')
                     ax.set_xlim(0, 100)
                     ax.grid(axis='x', alpha=0.3)
                     ax.legend(fontsize=self.plot_style['legend_fontsize'])
 
-                    # Add value labels
+                    # Add value labels - adjust font size
+                    value_fontsize = max(4, min(7, 150 / num_matchups))
                     for i, (bar, games) in enumerate(zip(bars, games_counts)):
                         width = bar.get_width()
                         ax.text(width + 2, bar.get_y() + bar.get_height()/2.,
                                f'{width:.1f}% (n={games})',
-                               ha='left', va='center', fontsize=7)
+                               ha='left', va='center', fontsize=value_fontsize)
 
                     plt.tight_layout()
                     img_path = os.path.join(self.temp_dir, f'matchups_{player_count}p.png')
                     plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
                     plt.close()
 
-                    self.story.append(Image(img_path, width=6.5*inch, height=max(4*inch, len(top_viz) * 0.25*inch)))
+                    # Adjust image height in PDF
+                    pdf_height = max(5*inch, min(20*inch, num_matchups * 0.2*inch))
+                    self.story.append(Image(img_path, width=6.5*inch, height=pdf_height))
                     self.story.append(Spacer(1, 0.2*inch))
                 else:
                     note = Paragraph(
@@ -1469,7 +1509,7 @@ class SimulationReport:
                 position_data = position_data_by_player_count[player_count]
                 data_matrix = np.array([position_data[s] for s in strategies])
 
-                im = ax.imshow(data_matrix, cmap='YlOrRd', aspect='auto', vmin=0, vmax=50)
+                im = ax.imshow(data_matrix, cmap='YlOrRd', aspect='auto', vmin=0, vmax=100)
 
                 ax.set_xticks(np.arange(len(position_labels)))
                 ax.set_yticks(np.arange(len(strategies)))
@@ -1488,8 +1528,9 @@ class SimulationReport:
                 ax.set_xticks([])
                 ax.set_yticks([])
 
-        # Add single colorbar for all plots
-        cbar = fig.colorbar(im, ax=axes, label='Win Rate (%)', fraction=0.046, pad=0.04)
+        # Add horizontal colorbar below all plots
+        cbar = fig.colorbar(im, ax=axes, orientation='horizontal', label='Win Rate (%)',
+                           fraction=0.05, pad=0.15, aspect=40)
 
         plt.tight_layout()
         img_path = os.path.join(self.temp_dir, 'position_heatmap_by_player_count.png')
