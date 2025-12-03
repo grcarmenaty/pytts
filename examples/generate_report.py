@@ -1042,58 +1042,90 @@ class SimulationReport:
         self.story.append(explanation)
         self.story.append(Spacer(1, 0.2*inch))
 
-        # Calculate room tile stats by strategy
-        tile_stats = {}
-        for pos in range(1, 5):
-            strategy_col = f'p{pos}_strategy'
-            tiles_col = f'p{pos}_room_tiles'
+        # Calculate room tile stats by strategy and player count
+        tile_stats_by_player_count = {2: {}, 3: {}, 4: {}, 'Overall': {}}
 
-            if strategy_col not in self.df.columns or tiles_col not in self.df.columns:
+        for idx, row in self.df.iterrows():
+            # Determine player count for this game
+            player_count = sum(1 for pos in range(1, 5)
+                             if f'p{pos}_strategy' in self.df.columns and not pd.isna(row[f'p{pos}_strategy']))
+
+            if player_count not in [2, 3, 4]:
                 continue
 
-            for idx, row in self.df.iterrows():
+            for pos in range(1, player_count + 1):
+                strategy_col = f'p{pos}_strategy'
+                tiles_col = f'p{pos}_room_tiles'
+
+                if strategy_col not in self.df.columns or tiles_col not in self.df.columns:
+                    continue
+
                 strategy = row[strategy_col]
                 tiles = row[tiles_col]
 
                 if pd.isna(strategy) or pd.isna(tiles):
                     continue
 
-                if strategy not in tile_stats:
-                    tile_stats[strategy] = []
-                tile_stats[strategy].append(tiles)
+                # Add to player-count-specific stats
+                if strategy not in tile_stats_by_player_count[player_count]:
+                    tile_stats_by_player_count[player_count][strategy] = []
+                tile_stats_by_player_count[player_count][strategy].append(tiles)
 
-        if tile_stats:
-            table_data = [['Strategy', 'Avg Tiles', 'Min', 'Max', 'Std Dev']]
+                # Add to overall stats
+                if strategy not in tile_stats_by_player_count['Overall']:
+                    tile_stats_by_player_count['Overall'][strategy] = []
+                tile_stats_by_player_count['Overall'][strategy].append(tiles)
 
-            for strategy in sorted(tile_stats.keys()):
-                tiles = tile_stats[strategy]
-                avg = np.mean(tiles)
-                min_val = np.min(tiles)
-                max_val = np.max(tiles)
-                std = np.std(tiles)
+        if tile_stats_by_player_count['Overall']:
+            # Create 4 subplots: 2P, 3P, 4P, Overall
+            fig, axes = plt.subplots(2, 2, figsize=self.plot_style['figsize_wide'])
+            fig.suptitle('Average Room Tiles Acquired by Strategy and Player Count',
+                        fontsize=self.plot_style['title_fontsize'], fontweight='bold')
 
-                table_data.append([
-                    strategy,
-                    f"{avg:.2f}",
-                    f"{min_val:.0f}",
-                    f"{max_val:.0f}",
-                    f"{std:.2f}"
-                ])
+            plot_configs = [
+                (axes[0, 0], 2, '2-Player Games', self.colors['player2']),
+                (axes[0, 1], 3, '3-Player Games', self.colors['player3']),
+                (axes[1, 0], 4, '4-Player Games', self.colors['player4']),
+                (axes[1, 1], 'Overall', 'All Games', self.colors['primary'])
+            ]
 
-            table = Table(table_data, colWidths=[2.2*inch, 1*inch, 0.8*inch, 0.8*inch, 1*inch])
-            table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4788')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('ALIGN', (0, 1), (0, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 10),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
-            ]))
+            for ax, key, title, color in plot_configs:
+                if tile_stats_by_player_count[key]:
+                    strategies = sorted(tile_stats_by_player_count[key].keys())
+                    avgs = [np.mean(tile_stats_by_player_count[key][s]) for s in strategies]
 
-            self.story.append(table)
+                    bars = ax.bar(range(len(strategies)), avgs, color=color, edgecolor='black', alpha=0.8)
+                    ax.set_xticks(range(len(strategies)))
+                    ax.set_xticklabels(strategies, rotation=45, ha='right', fontsize=8)
+                    ax.set_ylabel('Avg Tiles', fontsize=self.plot_style['label_fontsize'])
+                    ax.set_title(title, fontsize=self.plot_style['label_fontsize'], fontweight='bold')
+                    ax.grid(axis='y', alpha=0.3)
+
+                    # Add value labels on bars
+                    for bar in bars:
+                        height = bar.get_height()
+                        ax.text(bar.get_x() + bar.get_width()/2., height,
+                               f'{height:.1f}',
+                               ha='center', va='bottom', fontsize=7)
+                else:
+                    ax.text(0.5, 0.5, f'No {key}P data', ha='center', va='center',
+                           transform=ax.transAxes, fontsize=10)
+                    ax.set_xticks([])
+                    ax.set_yticks([])
+
+            plt.tight_layout()
+            img_path = os.path.join(self.temp_dir, 'room_tiles_by_player_count.png')
+            plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
+            plt.close()
+
+            self.story.append(Image(img_path, width=6.5*inch, height=5*inch))
+            self.story.append(Spacer(1, 0.2*inch))
+
+            note = Paragraph(
+                "<i>Note: Detailed room tile statistics are available in Annex D of the Annexes section.</i>",
+                self.styles['BodyText']
+            )
+            self.story.append(note)
             self.story.append(Spacer(1, 0.3*inch))
 
         # Advantage Card Selection Statistics
@@ -1287,54 +1319,82 @@ class SimulationReport:
                     if pos == winner_pos:
                         matchups[strategy][opponents]['wins'] += 1
 
-            # Create table for this player count
+            # Create visualization for this player count
             if matchups:
-                # Sort strategies and get top matchups
-                table_data = [['Strategy', 'vs Opponents', 'Games', 'Wins', 'Win Rate']]
-
+                # Collect all matchup data for visualization
+                viz_data = []
                 for strategy in sorted(matchups.keys()):
                     # Get all opponent combinations for this strategy
-                    opponent_records = []
                     for opponents, record in matchups[strategy].items():
                         wins = record['wins']
                         games = record['games']
-                        win_rate = (wins / games * 100) if games > 0 else 0
-                        opponent_records.append((opponents, games, wins, win_rate))
+                        if games >= 10:  # Only show matchups with significant sample size
+                            win_rate = (wins / games * 100) if games > 0 else 0
+                            opponent_str = ' + '.join(opponents)
+                            if len(opponent_str) > 30:
+                                opponent_str = opponent_str[:27] + '...'
+                            viz_data.append({
+                                'strategy': strategy,
+                                'opponents': opponent_str,
+                                'label': f"{strategy} vs {opponent_str}",
+                                'win_rate': win_rate,
+                                'games': games
+                            })
 
-                    # Sort by number of games (most common matchups first)
-                    opponent_records.sort(key=lambda x: x[1], reverse=True)
+                # Sort by win rate and get top 15 most interesting matchups
+                viz_data.sort(key=lambda x: x['win_rate'], reverse=True)
+                top_viz = viz_data[:15]
 
-                    # Add top 3 matchups for this strategy
-                    for i, (opponents, games, wins, win_rate) in enumerate(opponent_records[:3]):
-                        opponent_str = ' + '.join(opponents)
-                        if len(opponent_str) > 40:
-                            opponent_str = opponent_str[:37] + '...'
+                if top_viz:
+                    # Create horizontal bar chart
+                    fig, ax = plt.subplots(figsize=(10, max(6, len(top_viz) * 0.4)))
 
-                        table_data.append([
-                            strategy if i == 0 else '',  # Only show strategy name once
-                            opponent_str,
-                            f"{games}",
-                            f"{wins}",
-                            f"{win_rate:.1f}%"
-                        ])
+                    labels = [item['label'] for item in top_viz]
+                    win_rates = [item['win_rate'] for item in top_viz]
+                    games_counts = [item['games'] for item in top_viz]
 
-                table = Table(table_data, colWidths=[1.8*inch, 2.2*inch, 0.8*inch, 0.7*inch, 1*inch])
-                table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4788')),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                    ('ALIGN', (0, 1), (0, -1), 'LEFT'),
-                    ('ALIGN', (1, 1), (1, -1), 'LEFT'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 9),
-                    ('FONTSIZE', (0, 1), (-1, -1), 8),
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
-                ]))
+                    # Color bars based on win rate
+                    colors_list = []
+                    for wr in win_rates:
+                        if wr >= 60:
+                            colors_list.append(self.colors['success'])
+                        elif wr >= 40:
+                            colors_list.append(self.colors['primary'])
+                        else:
+                            colors_list.append(self.colors['danger'])
 
-                self.story.append(table)
-                self.story.append(Spacer(1, 0.3*inch))
+                    bars = ax.barh(range(len(labels)), win_rates, color=colors_list, edgecolor='black', alpha=0.8)
+                    ax.set_yticks(range(len(labels)))
+                    ax.set_yticklabels(labels, fontsize=8)
+                    ax.set_xlabel('Win Rate (%)', fontsize=self.plot_style['label_fontsize'])
+                    ax.set_title(f'Top Matchups: {player_count}-Player Games (min 10 games)',
+                                fontsize=self.plot_style['title_fontsize'], fontweight='bold')
+                    ax.axvline(50, color='red', linestyle='--', linewidth=1, alpha=0.5, label='50% baseline')
+                    ax.set_xlim(0, 100)
+                    ax.grid(axis='x', alpha=0.3)
+                    ax.legend(fontsize=self.plot_style['legend_fontsize'])
+
+                    # Add value labels
+                    for i, (bar, games) in enumerate(zip(bars, games_counts)):
+                        width = bar.get_width()
+                        ax.text(width + 2, bar.get_y() + bar.get_height()/2.,
+                               f'{width:.1f}% (n={games})',
+                               ha='left', va='center', fontsize=7)
+
+                    plt.tight_layout()
+                    img_path = os.path.join(self.temp_dir, f'matchups_{player_count}p.png')
+                    plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
+                    plt.close()
+
+                    self.story.append(Image(img_path, width=6.5*inch, height=max(4*inch, len(top_viz) * 0.25*inch)))
+                    self.story.append(Spacer(1, 0.2*inch))
+                else:
+                    note = Paragraph(
+                        f"<i>Not enough matchup data with sufficient sample sizes for {player_count}-player games.</i>",
+                        self.styles['BodyText']
+                    )
+                    self.story.append(note)
+                    self.story.append(Spacer(1, 0.2*inch))
 
             # Add summary stats for this player count
             total_games = len(games_subset)
@@ -1348,189 +1408,298 @@ class SimulationReport:
             self.story.append(Spacer(1, 0.3*inch))
 
     def _add_position_analysis(self):
-        """Add position-based performance analysis."""
+        """Add position-based performance analysis segregated by player count."""
         self.story.append(Paragraph("Position-Based Performance", self.styles['CustomHeading']))
         self.story.append(Spacer(1, 0.2*inch))
 
         intro = Paragraph(
-            "This section analyzes how each strategy performs from different starting positions (1-4).",
+            "This section analyzes how each strategy performs from different starting positions, "
+            "segregated by player count. Position effects vary significantly: in 2P games only positions "
+            "1-2 exist, in 3P games positions 1-3, and in 4P games all positions 1-4 are relevant.",
             self.styles['BodyText']
         )
         self.story.append(intro)
         self.story.append(Spacer(1, 0.2*inch))
 
-        # Calculate position win rates for each strategy
-        strategies = sorted(self.df['winner_strategy'].unique())
-        positions = [1, 2, 3, 4]
+        # Get all strategies
+        strategies = sorted(self.df['winner_strategy'].dropna().unique())
 
-        position_data = {strategy: [0, 0, 0, 0] for strategy in strategies}
+        # Calculate position win rates by player count
+        position_data_by_player_count = {2: {}, 3: {}, 4: {}}
 
-        for pos in positions:
-            strategy_col = f'p{pos}_strategy'
-            for strategy in strategies:
-                mask = (self.df[strategy_col] == strategy) & (self.df['winner_position'] == pos)
-                wins = mask.sum()
-                total = (self.df[strategy_col] == strategy).sum()
-                win_rate = (wins / total * 100) if total > 0 else 0
-                position_data[strategy][pos - 1] = win_rate
+        for player_count in [2, 3, 4]:
+            # Filter games by player count
+            games_mask = self.df.apply(
+                lambda row: sum(1 for pos in range(1, 5)
+                              if f'p{pos}_strategy' in self.df.columns
+                              and not pd.isna(row[f'p{pos}_strategy'])) == player_count,
+                axis=1
+            )
+            games_subset = self.df[games_mask]
 
-        # Create heatmap
-        fig, ax = plt.subplots(figsize=(10, 6))
-        data_matrix = np.array([position_data[s] for s in strategies])
+            if len(games_subset) == 0:
+                continue
 
-        im = ax.imshow(data_matrix, cmap='YlOrRd', aspect='auto')
+            position_data = {strategy: [0] * player_count for strategy in strategies}
 
-        # Set ticks
-        ax.set_xticks(np.arange(4))
-        ax.set_yticks(np.arange(len(strategies)))
-        ax.set_xticklabels(['Position 1', 'Position 2', 'Position 3', 'Position 4'])
-        ax.set_yticklabels(strategies)
+            for pos in range(1, player_count + 1):
+                strategy_col = f'p{pos}_strategy'
+                for strategy in strategies:
+                    mask = (games_subset[strategy_col] == strategy) & (games_subset['winner_position'] == pos)
+                    wins = mask.sum()
+                    total = (games_subset[strategy_col] == strategy).sum()
+                    win_rate = (wins / total * 100) if total > 0 else 0
+                    position_data[strategy][pos - 1] = win_rate
 
-        # Add colorbar
-        cbar = plt.colorbar(im, ax=ax)
-        cbar.set_label('Win Rate (%)', rotation=270, labelpad=20)
+            position_data_by_player_count[player_count] = position_data
 
-        # Add text annotations
-        for i in range(len(strategies)):
-            for j in range(4):
-                text = ax.text(j, i, f'{data_matrix[i, j]:.1f}%',
-                             ha="center", va="center", color="black", fontsize=8)
+        # Create 3 heatmaps: 2P, 3P, 4P
+        fig, axes = plt.subplots(1, 3, figsize=(14, 6))
+        fig.suptitle('Strategy Win Rate by Starting Position and Player Count',
+                    fontsize=self.plot_style['title_fontsize'], fontweight='bold')
 
-        ax.set_title('Strategy Win Rate by Starting Position')
+        plot_configs = [
+            (axes[0], 2, '2-Player Games', ['P1', 'P2']),
+            (axes[1], 3, '3-Player Games', ['P1', 'P2', 'P3']),
+            (axes[2], 4, '4-Player Games', ['P1', 'P2', 'P3', 'P4'])
+        ]
+
+        for ax, player_count, title, position_labels in plot_configs:
+            if position_data_by_player_count[player_count]:
+                position_data = position_data_by_player_count[player_count]
+                data_matrix = np.array([position_data[s] for s in strategies])
+
+                im = ax.imshow(data_matrix, cmap='YlOrRd', aspect='auto', vmin=0, vmax=50)
+
+                ax.set_xticks(np.arange(len(position_labels)))
+                ax.set_yticks(np.arange(len(strategies)))
+                ax.set_xticklabels(position_labels, fontsize=8)
+                ax.set_yticklabels(strategies, fontsize=7)
+                ax.set_title(title, fontsize=self.plot_style['label_fontsize'], fontweight='bold')
+
+                # Add text annotations
+                for i in range(len(strategies)):
+                    for j in range(len(position_labels)):
+                        ax.text(j, i, f'{data_matrix[i, j]:.0f}',
+                               ha="center", va="center", color="black", fontsize=6)
+            else:
+                ax.text(0.5, 0.5, f'No {player_count}P data', ha='center', va='center',
+                       transform=ax.transAxes, fontsize=10)
+                ax.set_xticks([])
+                ax.set_yticks([])
+
+        # Add single colorbar for all plots
+        cbar = fig.colorbar(im, ax=axes, label='Win Rate (%)', fraction=0.046, pad=0.04)
+
         plt.tight_layout()
-
-        chart_path = Path(self.temp_dir) / 'position_heatmap.png'
-        plt.savefig(chart_path, dpi=150, bbox_inches='tight')
+        img_path = os.path.join(self.temp_dir, 'position_heatmap_by_player_count.png')
+        plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
         plt.close()
 
-        img = Image(str(chart_path), width=6.5*inch, height=3.5*inch)
-        self.story.append(img)
+        self.story.append(Image(img_path, width=6.5*inch, height=3.5*inch))
+        self.story.append(Spacer(1, 0.2*inch))
+
+        explanation = Paragraph(
+            "<b>Interpretation:</b> Expected win rates are 50% in 2P (positions 1-2), 33.3% in 3P (positions 1-3), "
+            "and 25% in 4P (positions 1-4). Values significantly above these baselines indicate positional advantage.",
+            self.styles['PlotExplanation']
+        )
+        self.story.append(explanation)
         self.story.append(PageBreak())
 
     def _add_vp_analysis(self):
-        """Add VP distribution analysis."""
+        """Add VP distribution analysis segregated by player count."""
         self.story.append(Paragraph("Victory Point Analysis", self.styles['CustomHeading']))
         self.story.append(Spacer(1, 0.2*inch))
 
-        # Gather all scores by strategy
-        strategy_scores = {}
-        for pos in range(1, 5):
-            strategy_col = f'p{pos}_strategy'
-            score_col = f'p{pos}_final_score'
-            # Skip if columns don't exist
-            if strategy_col not in self.df.columns or score_col not in self.df.columns:
-                continue
-            for _, row in self.df.iterrows():
-                strategy = row[strategy_col]
-                score = row[score_col]
-                # Skip NaN values
-                if pd.isna(strategy) or pd.isna(score):
-                    continue
-                if strategy not in strategy_scores:
-                    strategy_scores[strategy] = []
-                strategy_scores[strategy].append(score)
-
-        # Create box plot
-        fig, ax = plt.subplots(figsize=(12, 6))
-
-        strategies = sorted(strategy_scores.keys())
-        data_to_plot = [strategy_scores[s] for s in strategies]
-
-        bp = ax.boxplot(data_to_plot, labels=strategies, patch_artist=True)
-
-        # Color boxes
-        colors_list = plt.cm.Set3(np.linspace(0, 1, len(strategies)))
-        for patch, color in zip(bp['boxes'], colors_list):
-            patch.set_facecolor(color)
-
-        ax.set_xlabel('Strategy')
-        ax.set_ylabel('Victory Points')
-        ax.set_title('VP Distribution by Strategy')
-        ax.grid(axis='y', alpha=0.3)
-        plt.xticks(rotation=45, ha='right')
-        plt.tight_layout()
-
-        chart_path = Path(self.temp_dir) / 'vp_distribution.png'
-        plt.savefig(chart_path, dpi=150, bbox_inches='tight')
-        plt.close()
-
-        img = Image(str(chart_path), width=6.5*inch, height=3.5*inch)
-        self.story.append(img)
+        intro = Paragraph(
+            "Victory Point (VP) distribution by strategy, segregated by 2-player, 3-player, 4-player, and overall games. "
+            "Box plots show median, quartiles, and outliers for each strategy.",
+            self.styles['BodyText']
+        )
+        self.story.append(intro)
         self.story.append(Spacer(1, 0.2*inch))
 
-        # Statistics table
-        data = [['Strategy', 'Mean VP', 'Std Dev', 'Min', 'Max', 'Median']]
-        for strategy in strategies:
-            scores = strategy_scores[strategy]
-            data.append([
-                strategy,
-                f"{np.mean(scores):.1f}",
-                f"{np.std(scores):.1f}",
-                f"{np.min(scores):.0f}",
-                f"{np.max(scores):.0f}",
-                f"{np.median(scores):.1f}"
-            ])
+        # Gather scores by strategy and player count
+        strategy_scores_by_player_count = {2: {}, 3: {}, 4: {}, 'Overall': {}}
 
-        table = Table(data, colWidths=[2*inch, 1*inch, 1*inch, 0.8*inch, 0.8*inch, 1*inch])
-        table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black),
-        ]))
-        self.story.append(table)
+        for idx, row in self.df.iterrows():
+            # Determine player count for this game
+            player_count = sum(1 for pos in range(1, 5)
+                             if f'p{pos}_strategy' in self.df.columns and not pd.isna(row[f'p{pos}_strategy']))
+
+            if player_count not in [2, 3, 4]:
+                continue
+
+            for pos in range(1, player_count + 1):
+                strategy_col = f'p{pos}_strategy'
+                score_col = f'p{pos}_final_score'
+
+                if strategy_col not in self.df.columns or score_col not in self.df.columns:
+                    continue
+
+                strategy = row[strategy_col]
+                score = row[score_col]
+
+                if pd.isna(strategy) or pd.isna(score):
+                    continue
+
+                # Add to player-count-specific scores
+                if strategy not in strategy_scores_by_player_count[player_count]:
+                    strategy_scores_by_player_count[player_count][strategy] = []
+                strategy_scores_by_player_count[player_count][strategy].append(score)
+
+                # Add to overall scores
+                if strategy not in strategy_scores_by_player_count['Overall']:
+                    strategy_scores_by_player_count['Overall'][strategy] = []
+                strategy_scores_by_player_count['Overall'][strategy].append(score)
+
+        # Create 4 box plots: 2P, 3P, 4P, Overall
+        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+        fig.suptitle('VP Distribution by Strategy and Player Count',
+                    fontsize=self.plot_style['title_fontsize'] + 2, fontweight='bold')
+
+        plot_configs = [
+            (axes[0, 0], 2, '2-Player Games'),
+            (axes[0, 1], 3, '3-Player Games'),
+            (axes[1, 0], 4, '4-Player Games'),
+            (axes[1, 1], 'Overall', 'All Games')
+        ]
+
+        for ax, key, title in plot_configs:
+            if strategy_scores_by_player_count[key]:
+                strategies = sorted(strategy_scores_by_player_count[key].keys())
+                data_to_plot = [strategy_scores_by_player_count[key][s] for s in strategies]
+
+                bp = ax.boxplot(data_to_plot, labels=strategies, patch_artist=True)
+
+                # Color boxes using unified colors
+                colors_list = [self.colors['primary'], self.colors['success'],
+                              self.colors['warning'], self.colors['danger']]
+                for i, patch in enumerate(bp['boxes']):
+                    patch.set_facecolor(colors_list[i % len(colors_list)])
+                    patch.set_alpha(0.7)
+
+                ax.set_ylabel('Victory Points', fontsize=self.plot_style['label_fontsize'])
+                ax.set_title(title, fontsize=self.plot_style['label_fontsize'], fontweight='bold')
+                ax.grid(axis='y', alpha=0.3)
+                ax.tick_params(axis='x', rotation=45, labelsize=8)
+
+                # Make x-axis labels readable
+                for tick in ax.get_xticklabels():
+                    tick.set_rotation(45)
+                    tick.set_ha('right')
+            else:
+                ax.text(0.5, 0.5, f'No {key}P data', ha='center', va='center',
+                       transform=ax.transAxes, fontsize=10)
+                ax.set_xticks([])
+                ax.set_yticks([])
+
+        plt.tight_layout()
+        img_path = os.path.join(self.temp_dir, 'vp_distribution_by_player_count.png')
+        plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
+        plt.close()
+
+        self.story.append(Image(img_path, width=6.5*inch, height=6*inch))
+        self.story.append(Spacer(1, 0.2*inch))
+
+        note = Paragraph(
+            "<i>Note: Detailed VP statistics (mean, std dev, min, max, median) are available in the Annexes section.</i>",
+            self.styles['BodyText']
+        )
+        self.story.append(note)
+        self.story.append(Spacer(1, 0.2*inch))
         self.story.append(PageBreak())
 
     def _add_score_difference_analysis(self):
-        """Add score difference analysis."""
+        """Add score difference analysis segregated by player count."""
         self.story.append(Paragraph("Score Differential Analysis", self.styles['CustomHeading']))
         self.story.append(Spacer(1, 0.2*inch))
 
         intro = Paragraph(
             "Score differential measures the gap between the winner and other players, "
-            "indicating game competitiveness and strategy dominance.",
+            "indicating game competitiveness and strategy dominance. Analysis is segregated "
+            "by 2-player, 3-player, 4-player, and overall games.",
             self.styles['BodyText']
         )
         self.story.append(intro)
         self.story.append(Spacer(1, 0.2*inch))
 
-        # Create histogram
-        fig, ax = plt.subplots(figsize=(10, 5))
+        # Collect score differences by player count
+        score_diff_by_player_count = {2: [], 3: [], 4: [], 'Overall': []}
 
-        ax.hist(self.df['score_difference'], bins=30, color='skyblue', edgecolor='black', alpha=0.7)
-        ax.axvline(self.df['score_difference'].mean(), color='red', linestyle='--',
-                   label=f'Mean: {self.df["score_difference"].mean():.1f}')
-        ax.axvline(self.df['score_difference'].median(), color='green', linestyle='--',
-                   label=f'Median: {self.df["score_difference"].median():.1f}')
+        for idx, row in self.df.iterrows():
+            # Determine player count for this game
+            player_count = sum(1 for pos in range(1, 5)
+                             if f'p{pos}_strategy' in self.df.columns and not pd.isna(row[f'p{pos}_strategy']))
 
-        ax.set_xlabel('Score Difference (Winner - Last Place)')
-        ax.set_ylabel('Frequency')
-        ax.set_title('Distribution of Score Differences')
-        ax.legend()
-        ax.grid(axis='y', alpha=0.3)
+            if player_count not in [2, 3, 4]:
+                continue
+
+            score_diff = row.get('score_difference')
+            if pd.isna(score_diff):
+                continue
+
+            score_diff_by_player_count[player_count].append(score_diff)
+            score_diff_by_player_count['Overall'].append(score_diff)
+
+        # Create 4 histograms: 2P, 3P, 4P, Overall
+        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+        fig.suptitle('Score Differential Distribution by Player Count',
+                    fontsize=self.plot_style['title_fontsize'] + 2, fontweight='bold')
+
+        plot_configs = [
+            (axes[0, 0], 2, '2-Player Games', self.colors['player2']),
+            (axes[0, 1], 3, '3-Player Games', self.colors['player3']),
+            (axes[1, 0], 4, '4-Player Games', self.colors['player4']),
+            (axes[1, 1], 'Overall', 'All Games', self.colors['primary'])
+        ]
+
+        for ax, key, title, color in plot_configs:
+            if score_diff_by_player_count[key]:
+                data = score_diff_by_player_count[key]
+                mean_val = np.mean(data)
+                median_val = np.median(data)
+
+                ax.hist(data, bins=20, color=color, edgecolor='black', alpha=0.7)
+                ax.axvline(mean_val, color='red', linestyle='--', linewidth=2,
+                          label=f'Mean: {mean_val:.1f}')
+                ax.axvline(median_val, color='green', linestyle='--', linewidth=2,
+                          label=f'Median: {median_val:.1f}')
+
+                ax.set_xlabel('Score Difference (Winner - Last Place)', fontsize=self.plot_style['label_fontsize'])
+                ax.set_ylabel('Frequency', fontsize=self.plot_style['label_fontsize'])
+                ax.set_title(title, fontsize=self.plot_style['label_fontsize'], fontweight='bold')
+                ax.legend(fontsize=self.plot_style['legend_fontsize'])
+                ax.grid(axis='y', alpha=0.3)
+            else:
+                ax.text(0.5, 0.5, f'No {key}P data', ha='center', va='center',
+                       transform=ax.transAxes, fontsize=10)
+                ax.set_xticks([])
+                ax.set_yticks([])
+
         plt.tight_layout()
-
-        chart_path = Path(self.temp_dir) / 'score_diff.png'
-        plt.savefig(chart_path, dpi=150, bbox_inches='tight')
+        img_path = os.path.join(self.temp_dir, 'score_diff_by_player_count.png')
+        plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
         plt.close()
 
-        img = Image(str(chart_path), width=6*inch, height=2.5*inch)
-        self.story.append(img)
+        self.story.append(Image(img_path, width=6.5*inch, height=6*inch))
         self.story.append(Spacer(1, 0.2*inch))
 
-        # Statistics
-        stats_text = f"""
-        <b>Mean Difference:</b> {self.df['score_difference'].mean():.2f} VP<br/>
-        <b>Median Difference:</b> {self.df['score_difference'].median():.2f} VP<br/>
-        <b>Std Deviation:</b> {self.df['score_difference'].std():.2f} VP<br/>
-        <b>Min Difference:</b> {self.df['score_difference'].min():.0f} VP<br/>
-        <b>Max Difference:</b> {self.df['score_difference'].max():.0f} VP<br/>
-        """
-        self.story.append(Paragraph(stats_text, self.styles['BodyText']))
+        # Summary statistics for each player count
+        summary_text = "<b>Score Differential Statistics:</b><br/><br/>"
+        for key in [2, 3, 4, 'Overall']:
+            if score_diff_by_player_count[key]:
+                data = score_diff_by_player_count[key]
+                label = f"{key}-Player" if isinstance(key, int) else "Overall"
+                summary_text += (
+                    f"<b>{label}:</b> Mean={np.mean(data):.1f} VP, "
+                    f"Median={np.median(data):.1f} VP, "
+                    f"StdDev={np.std(data):.1f} VP<br/>"
+                )
+
+        self.story.append(Paragraph(summary_text, self.styles['BodyText']))
+        self.story.append(Spacer(1, 0.2*inch))
         self.story.append(PageBreak())
 
     def _add_key_insights(self):
@@ -1621,69 +1790,90 @@ class SimulationReport:
         self.story.append(intro)
         self.story.append(Spacer(1, 0.2*inch))
 
-        # Calculate strategy usage
-        strategy_usage = {}
-        strategy_position_usage = {pos: {} for pos in range(1, 5)}
+        # Calculate strategy usage by player count
+        strategy_usage_by_player_count = {2: {}, 3: {}, 4: {}, 'Overall': {}}
 
-        for pos in range(1, 5):
-            strategy_col = f'p{pos}_strategy'
-            if strategy_col not in self.df.columns:
+        for idx, row in self.df.iterrows():
+            # Determine player count for this game
+            player_count = sum(1 for pos in range(1, 5)
+                             if f'p{pos}_strategy' in self.df.columns and not pd.isna(row[f'p{pos}_strategy']))
+
+            if player_count not in [2, 3, 4]:
                 continue
-            for strategy in self.df[strategy_col]:
-                # Skip NaN values (from games with fewer players)
+
+            for pos in range(1, player_count + 1):
+                strategy_col = f'p{pos}_strategy'
+                if strategy_col not in self.df.columns:
+                    continue
+
+                strategy = row[strategy_col]
                 if pd.isna(strategy):
                     continue
-                if strategy not in strategy_usage:
-                    strategy_usage[strategy] = 0
-                strategy_usage[strategy] += 1
 
-                if strategy not in strategy_position_usage[pos]:
-                    strategy_position_usage[pos][strategy] = 0
-                strategy_position_usage[pos][strategy] += 1
+                # Add to player-count-specific usage
+                if strategy not in strategy_usage_by_player_count[player_count]:
+                    strategy_usage_by_player_count[player_count][strategy] = 0
+                strategy_usage_by_player_count[player_count][strategy] += 1
 
-        total_plays = sum(strategy_usage.values())
+                # Add to overall usage
+                if strategy not in strategy_usage_by_player_count['Overall']:
+                    strategy_usage_by_player_count['Overall'][strategy] = 0
+                strategy_usage_by_player_count['Overall'][strategy] += 1
 
-        # Create table
-        table_data = [['Strategy', 'Total Plays', '% of Games', 'Pos 1', 'Pos 2', 'Pos 3', 'Pos 4']]
+        # Create 4 bar charts: 2P, 3P, 4P, Overall
+        fig, axes = plt.subplots(2, 2, figsize=self.plot_style['figsize_wide'])
+        fig.suptitle('Strategy Usage Frequency by Player Count',
+                    fontsize=self.plot_style['title_fontsize'], fontweight='bold')
 
-        for strategy in sorted(strategy_usage.keys()):
-            count = strategy_usage[strategy]
-            pct = count / total_plays * 100
-            pos_counts = [str(strategy_position_usage[pos].get(strategy, 0)) for pos in range(1, 5)]
-            table_data.append([
-                strategy,
-                f"{count:,}",
-                f"{pct:.1f}%",
-                pos_counts[0],
-                pos_counts[1],
-                pos_counts[2],
-                pos_counts[3]
-            ])
+        plot_configs = [
+            (axes[0, 0], 2, '2-Player Games', self.colors['player2']),
+            (axes[0, 1], 3, '3-Player Games', self.colors['player3']),
+            (axes[1, 0], 4, '4-Player Games', self.colors['player4']),
+            (axes[1, 1], 'Overall', 'All Games', self.colors['primary'])
+        ]
 
-        table = Table(table_data, colWidths=[2*inch, 0.9*inch, 0.9*inch, 0.6*inch, 0.6*inch, 0.6*inch, 0.6*inch])
-        table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4788')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
-        ]))
+        for ax, key, title, color in plot_configs:
+            if strategy_usage_by_player_count[key]:
+                strategies = sorted(strategy_usage_by_player_count[key].keys())
+                counts = [strategy_usage_by_player_count[key][s] for s in strategies]
 
-        self.story.append(table)
+                bars = ax.bar(range(len(strategies)), counts, color=color, edgecolor='black', alpha=0.8)
+                ax.set_xticks(range(len(strategies)))
+                ax.set_xticklabels(strategies, rotation=45, ha='right', fontsize=8)
+                ax.set_ylabel('Usage Count', fontsize=self.plot_style['label_fontsize'])
+                ax.set_title(title, fontsize=self.plot_style['label_fontsize'], fontweight='bold')
+                ax.grid(axis='y', alpha=0.3)
+
+                # Add value labels on bars
+                for bar in bars:
+                    height = bar.get_height()
+                    ax.text(bar.get_x() + bar.get_width()/2., height,
+                           f'{int(height)}',
+                           ha='center', va='bottom', fontsize=7)
+            else:
+                ax.text(0.5, 0.5, f'No {key}P data', ha='center', va='center',
+                       transform=ax.transAxes, fontsize=10)
+                ax.set_xticks([])
+                ax.set_yticks([])
+
+        plt.tight_layout()
+        img_path = os.path.join(self.temp_dir, 'strategy_usage_by_player_count.png')
+        plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
+        plt.close()
+
+        self.story.append(Image(img_path, width=6.5*inch, height=5*inch))
         self.story.append(Spacer(1, 0.2*inch))
 
         note = Paragraph(
-            "<i>Note: In balanced simulations, each strategy appears equally across all positions.</i>",
+            "<i>Note: In balanced simulations, each strategy appears equally across all positions. "
+            "Detailed usage statistics by position are available in the Annexes section.</i>",
             self.styles['BodyText']
         )
         self.story.append(note)
+        self.story.append(Spacer(1, 0.2*inch))
 
     def _add_head_to_head_analysis(self):
-        """Add head-to-head win rate matrix."""
+        """Add head-to-head win rate matrix segregated by player count."""
         self.story.append(PageBreak())
 
         title = Paragraph("Head-to-Head Win Rates", self.styles['CustomHeading'])
@@ -1691,95 +1881,136 @@ class SimulationReport:
         self.story.append(Spacer(1, 0.2*inch))
 
         intro = Paragraph(
-            "This matrix shows win rates when Strategy A (row) plays against Strategy B (column) "
-            "in any position. Values represent the percentage of games won by the row strategy.",
+            "Head-to-head win rate matrices showing performance when Strategy A (row) plays against "
+            "Strategy B (column), segregated by 2-player, 3-player, 4-player, and overall games. "
+            "Values represent the percentage of games won by the row strategy.",
             self.styles['BodyText']
         )
         self.story.append(intro)
         self.story.append(Spacer(1, 0.3*inch))
 
-        # Build head-to-head matrix
+        # Get all strategies
         strategy_usage = {}
         for pos in range(1, 5):
             col = f'p{pos}_strategy'
             if col not in self.df.columns:
                 continue
             for strategy in self.df[col]:
-                # Skip NaN values
-                if pd.isna(strategy):
-                    continue
-                strategy_usage[strategy] = True
+                if not pd.isna(strategy):
+                    strategy_usage[strategy] = True
 
         all_strat_names = sorted(strategy_usage.keys())
-        h2h_matrix = {s1: {s2: {'wins': 0, 'games': 0} for s2 in all_strat_names} for s1 in all_strat_names}
 
-        # Calculate head-to-head stats
+        # Build head-to-head matrices by player count
+        h2h_by_player_count = {2: {}, 3: {}, 4: {}, 'Overall': {}}
+        for key in h2h_by_player_count:
+            h2h_by_player_count[key] = {
+                s1: {s2: {'wins': 0, 'games': 0} for s2 in all_strat_names}
+                for s1 in all_strat_names
+            }
+
+        # Calculate head-to-head stats by player count
         for idx, row in self.df.iterrows():
+            # Determine player count for this game
+            player_count = sum(1 for pos in range(1, 5)
+                             if f'p{pos}_strategy' in self.df.columns and not pd.isna(row[f'p{pos}_strategy']))
+
+            if player_count not in [2, 3, 4]:
+                continue
+
             winner_strategy = row['winner_strategy']
             winner_pos = row['winner_position']
 
-            # Skip if winner strategy is NaN
             if pd.isna(winner_strategy):
                 continue
 
-            # Collect strategies, skipping NaN values
+            # Collect strategies in this game
             strategies = []
-            for pos in range(1, 5):
+            for pos in range(1, player_count + 1):
                 col = f'p{pos}_strategy'
                 if col in self.df.columns and not pd.isna(row[col]):
                     strategies.append((pos, row[col]))
 
             for pos, opponent in strategies:
                 if pos != winner_pos:
-                    h2h_matrix[winner_strategy][opponent]['wins'] += 1
-                    h2h_matrix[winner_strategy][opponent]['games'] += 1
-                    h2h_matrix[opponent][winner_strategy]['games'] += 1
+                    # Add to player-count-specific matrix
+                    h2h_by_player_count[player_count][winner_strategy][opponent]['wins'] += 1
+                    h2h_by_player_count[player_count][winner_strategy][opponent]['games'] += 1
+                    h2h_by_player_count[player_count][opponent][winner_strategy]['games'] += 1
 
-        # Create heatmap
-        matrix_data = []
-        for s1 in all_strat_names:
-            row_data = []
-            for s2 in all_strat_names:
-                if s1 == s2:
-                    row_data.append(None)
-                else:
-                    games = h2h_matrix[s1][s2]['games']
-                    if games > 0:
-                        wins = h2h_matrix[s1][s2]['wins']
-                        win_rate = wins / games * 100
-                        row_data.append(win_rate)
+                    # Add to overall matrix
+                    h2h_by_player_count['Overall'][winner_strategy][opponent]['wins'] += 1
+                    h2h_by_player_count['Overall'][winner_strategy][opponent]['games'] += 1
+                    h2h_by_player_count['Overall'][opponent][winner_strategy]['games'] += 1
+
+        # Create 4 heatmaps: 2P, 3P, 4P, Overall
+        fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+        fig.suptitle('Head-to-Head Win Rate Matrices by Player Count',
+                    fontsize=self.plot_style['title_fontsize'] + 2, fontweight='bold')
+
+        plot_configs = [
+            (axes[0, 0], 2, '2-Player Games'),
+            (axes[0, 1], 3, '3-Player Games'),
+            (axes[1, 0], 4, '4-Player Games'),
+            (axes[1, 1], 'Overall', 'All Games')
+        ]
+
+        for ax, key, title in plot_configs:
+            h2h_matrix = h2h_by_player_count[key]
+
+            # Build matrix data
+            matrix_data = []
+            for s1 in all_strat_names:
+                row_data = []
+                for s2 in all_strat_names:
+                    if s1 == s2:
+                        row_data.append(np.nan)
                     else:
-                        row_data.append(0)
-            matrix_data.append(row_data)
+                        games = h2h_matrix[s1][s2]['games']
+                        if games >= 5:  # Minimum threshold for meaningful win rate
+                            wins = h2h_matrix[s1][s2]['wins']
+                            win_rate = wins / games * 100
+                            row_data.append(win_rate)
+                        else:
+                            row_data.append(np.nan)
+                matrix_data.append(row_data)
 
-        # Create visualization
-        fig, ax = plt.subplots(figsize=(10, 8))
-        im = ax.imshow([[v if v is not None else np.nan for v in row] for row in matrix_data],
-                       cmap='RdYlGn', aspect='auto', vmin=0, vmax=100)
+            # Create heatmap
+            im = ax.imshow(matrix_data, cmap='RdYlGn', aspect='auto', vmin=0, vmax=100)
 
-        # Labels
-        ax.set_xticks(np.arange(len(all_strat_names)))
-        ax.set_yticks(np.arange(len(all_strat_names)))
-        ax.set_xticklabels([s[:10] for s in all_strat_names], rotation=45, ha='right')
-        ax.set_yticklabels([s[:15] for s in all_strat_names])
+            # Labels
+            ax.set_xticks(np.arange(len(all_strat_names)))
+            ax.set_yticks(np.arange(len(all_strat_names)))
+            ax.set_xticklabels([s[:8] for s in all_strat_names], rotation=45, ha='right', fontsize=7)
+            ax.set_yticklabels([s[:12] for s in all_strat_names], fontsize=7)
 
-        # Add text annotations
-        for i in range(len(all_strat_names)):
-            for j in range(len(all_strat_names)):
-                if matrix_data[i][j] is not None:
-                    text = ax.text(j, i, f"{matrix_data[i][j]:.0f}%",
-                                 ha="center", va="center", color="black", fontsize=7)
+            # Add text annotations
+            for i in range(len(all_strat_names)):
+                for j in range(len(all_strat_names)):
+                    if not np.isnan(matrix_data[i][j]):
+                        ax.text(j, i, f"{matrix_data[i][j]:.0f}",
+                               ha="center", va="center", color="black", fontsize=6)
 
-        ax.set_title("Head-to-Head Win Rate Matrix (%)")
-        fig.colorbar(im, ax=ax, label='Win Rate %')
+            ax.set_title(title, fontsize=self.plot_style['label_fontsize'], fontweight='bold')
+
+        # Add single colorbar for all plots
+        fig.colorbar(im, ax=axes, label='Win Rate %', fraction=0.046, pad=0.04)
+
         plt.tight_layout()
-
-        img_path = f"{self.temp_dir}/h2h_matrix.png"
-        plt.savefig(img_path, dpi=150, bbox_inches='tight')
+        img_path = os.path.join(self.temp_dir, 'h2h_matrix_by_player_count.png')
+        plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
         plt.close()
 
-        img = Image(img_path, width=6.5*inch, height=5.2*inch)
-        self.story.append(img)
+        self.story.append(Image(img_path, width=6.5*inch, height=6*inch))
+        self.story.append(Spacer(1, 0.2*inch))
+
+        note = Paragraph(
+            "<i>Note: Only matchups with at least 5 games are shown to ensure statistical relevance. "
+            "Diagonal cells (same strategy) are left blank.</i>",
+            self.styles['BodyText']
+        )
+        self.story.append(note)
+        self.story.append(Spacer(1, 0.2*inch))
 
     def _add_matchup_analysis(self):
         """Add comprehensive matchup performance matrix."""
