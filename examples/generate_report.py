@@ -150,7 +150,6 @@ class SimulationReport:
 
         # Part 2: Strategy Performance
         self._add_strategy_performance_overview()
-        self._add_strategy_analysis()
 
         # Part 3: Multi-Player & Matchups
         self._add_player_count_analysis()
@@ -167,6 +166,9 @@ class SimulationReport:
         # Part 6: Position & Insights
         self._add_position_analysis()
         self._add_key_insights()
+
+        # Annexes: All Tabular Data
+        self._add_annexes()
 
         # Build PDF
         doc.build(self.story)
@@ -555,38 +557,12 @@ class SimulationReport:
         self.story.append(Image(img_path, width=6.5*inch, height=4*inch))
         self.story.append(Spacer(1, 0.3*inch))
 
-        # Performance summary table
-        subtitle = Paragraph("Strategy Performance Summary", self.styles['Heading2'])
-        self.story.append(subtitle)
-        self.story.append(Spacer(1, 0.1*inch))
-
-        table_data = [['Strategy', 'Games', 'Wins', 'Win Rate', 'Avg Score']]
-        for strategy in strategies:
-            stats = strategy_stats[strategy]
-            win_rate = (stats['wins'] / stats['games'] * 100)
-            avg_score = stats['total_score'] / stats['games']
-            table_data.append([
-                strategy,
-                f"{stats['games']:,}",
-                f"{stats['wins']:,}",
-                f"{win_rate:.1f}%",
-                f"{avg_score:.1f}"
-            ])
-
-        table = Table(table_data, colWidths=[2.2*inch, 0.9*inch, 0.9*inch, 1*inch, 1*inch])
-        table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4788')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
-        ]))
-
-        self.story.append(table)
+        note = Paragraph(
+            "<i>Note: Detailed tabular statistics are available in the Annexes section at the end of this report.</i>",
+            self.styles['BodyText']
+        )
+        self.story.append(note)
+        self.story.append(Spacer(1, 0.2*inch))
 
     def _add_art_type_theme_analysis(self):
         """Add comprehensive art type and theme analysis with visualizations."""
@@ -775,46 +751,7 @@ class SimulationReport:
                     player_count_data[num_players]['strategies'][winner] = 0
                 player_count_data[num_players]['strategies'][winner] += 1
 
-        # Create summary table
-        table_data = [['Player Count', 'Total Games', '% of All Games', 'Avg Score', 'Avg Score Diff']]
-
-        for player_count in sorted(player_count_data.keys()):
-            data = player_count_data[player_count]
-            total_games = data['games']
-            pct = (total_games / len(self.df)) * 100
-
-            # Calculate average scores for this player count
-            mask = self.df.apply(lambda row: sum(1 for pos in range(1, 5)
-                                                 if f'p{pos}_strategy' in self.df.columns
-                                                 and not pd.isna(row[f'p{pos}_strategy'])) == player_count,
-                                axis=1)
-            subset = self.df[mask]
-
-            avg_winner_score = subset['winner_score'].mean() if 'winner_score' in subset.columns else 0
-            avg_score_diff = subset['score_difference'].mean() if 'score_difference' in subset.columns else 0
-
-            table_data.append([
-                f"{player_count} Players",
-                f"{total_games:,}",
-                f"{pct:.1f}%",
-                f"{avg_winner_score:.1f}",
-                f"{avg_score_diff:.1f}"
-            ])
-
-        table = Table(table_data, colWidths=[1.5*inch, 1.2*inch, 1.2*inch, 1.2*inch, 1.2*inch])
-        table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4788')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
-        ]))
-
-        self.story.append(table)
-        self.story.append(Spacer(1, 0.3*inch))
+        # Player count summary will be visualized in the overview section
 
         # Strategy performance by player count
         subtitle = Paragraph("Strategy Performance by Player Count", self.styles['Heading2'])
@@ -835,41 +772,56 @@ class SimulationReport:
         self.story.append(explanation)
         self.story.append(Spacer(1, 0.2*inch))
 
-        # Create win rate table
+        # Create win rate visualization
         all_strategies = set()
         for data in player_count_data.values():
             all_strategies.update(data['strategies'].keys())
 
-        strategy_table_data = [['Strategy', '2P Win Rate', '3P Win Rate', '4P Win Rate']]
+        strategies = sorted(all_strategies)
+        player_counts = [2, 3, 4]
 
-        for strategy in sorted(all_strategies):
-            row = [strategy]
-            for pc in [2, 3, 4]:
+        # Build data matrix for visualization
+        win_rate_matrix = []
+        for strategy in strategies:
+            strategy_rates = []
+            for pc in player_counts:
                 if pc in player_count_data:
                     wins = player_count_data[pc]['strategies'].get(strategy, 0)
                     games = player_count_data[pc]['games']
-                    # In N-player games, each strategy has 1/N chance if equal
                     expected_wins = games / pc
                     win_rate = (wins / expected_wins * 100) if expected_wins > 0 else 0
-                    row.append(f"{win_rate:.1f}%")
+                    strategy_rates.append(win_rate)
                 else:
-                    row.append("N/A")
-            strategy_table_data.append(row)
+                    strategy_rates.append(0)
+            win_rate_matrix.append(strategy_rates)
 
-        strat_table = Table(strategy_table_data, colWidths=[2.5*inch, 1.3*inch, 1.3*inch, 1.3*inch])
-        strat_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4788')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 9),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
-        ]))
+        # Create grouped bar chart
+        fig, ax = plt.subplots(figsize=self.plot_style['figsize_wide'])
+        x = np.arange(len(strategies))
+        width = 0.25
 
-        self.story.append(strat_table)
+        bars1 = ax.bar(x - width, [row[0] for row in win_rate_matrix], width,
+                      label='2P Games', color=self.colors['player2'], edgecolor='black', alpha=0.8)
+        bars2 = ax.bar(x, [row[1] for row in win_rate_matrix], width,
+                      label='3P Games', color=self.colors['player3'], edgecolor='black', alpha=0.8)
+        bars3 = ax.bar(x + width, [row[2] for row in win_rate_matrix], width,
+                      label='4P Games', color=self.colors['player4'], edgecolor='black', alpha=0.8)
+
+        ax.set_ylabel('Normalized Win Rate (%)', fontsize=self.plot_style['label_fontsize'])
+        ax.set_title('Strategy Performance Across Player Counts', fontsize=self.plot_style['title_fontsize'], pad=10)
+        ax.set_xticks(x)
+        ax.set_xticklabels(strategies, rotation=45, ha='right', fontsize=self.plot_style['tick_fontsize'])
+        ax.legend(fontsize=self.plot_style['legend_fontsize'])
+        ax.axhline(100, color='red', linestyle='--', linewidth=1, alpha=0.5, label='Expected (100%)')
+        ax.grid(axis='y', alpha=0.3)
+        ax.tick_params(axis='y', labelsize=self.plot_style['tick_fontsize'])
+
+        img_path = f"{self.temp_dir}/player_count_performance.png"
+        plt.tight_layout()
+        plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
+        plt.close()
+
+        self.story.append(Image(img_path, width=6.5*inch, height=4.5*inch))
         self.story.append(Spacer(1, 0.2*inch))
 
         note = Paragraph(
@@ -1043,104 +995,12 @@ class SimulationReport:
         self.story.append(Image(img_path, width=6.5*inch, height=4*inch))
         self.story.append(Spacer(1, 0.3*inch))
 
-        # Overall Summary Table
-        subtitle = Paragraph("Overall Works & VP Summary by Strategy", self.styles['Heading2'])
-        self.story.append(subtitle)
+        note = Paragraph(
+            "<i>Note: Detailed tabular breakdowns of works by art type and theme are available in the Annexes section.</i>",
+            self.styles['BodyText']
+        )
+        self.story.append(note)
         self.story.append(Spacer(1, 0.2*inch))
-
-        table_data = [['Strategy', 'Avg Works\nPlayed', 'Avg Cards\nDiscarded', 'Avg VP\nEarned', 'Avg VP\nSpent']]
-
-        for strategy in sorted(strategy_stats.keys()):
-            stats = strategy_stats[strategy]
-            avg_played = np.mean(stats['total_works_played']) if stats['total_works_played'] else 0
-            avg_discarded = np.mean(stats['total_cards_discarded']) if stats['total_cards_discarded'] else 0
-            avg_earned = np.mean(stats['total_vp_earned']) if stats['total_vp_earned'] else 0
-            avg_spent = np.mean(stats['total_vp_spent']) if stats['total_vp_spent'] else 0
-
-            table_data.append([
-                strategy,
-                f"{avg_played:.1f}",
-                f"{avg_discarded:.1f}",
-                f"{avg_earned:.1f}",
-                f"{avg_spent:.1f}"
-            ])
-
-        table = Table(table_data, colWidths=[2.2*inch, 1.1*inch, 1.1*inch, 1.1*inch, 1.1*inch])
-        table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4788')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 9),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
-        ]))
-
-        self.story.append(table)
-        self.story.append(Spacer(1, 0.3*inch))
-
-        # Works by Art Type breakdown
-        subtitle = Paragraph("Works Played by Art Type", self.styles['Heading2'])
-        self.story.append(subtitle)
-        self.story.append(Spacer(1, 0.2*inch))
-
-        type_table_data = [['Strategy', 'Crafts', 'Painting', 'Sculpture', 'Relic']]
-
-        for strategy in sorted(strategy_stats.keys()):
-            stats = strategy_stats[strategy]
-            row = [strategy]
-            for work_type in ['crafts', 'painting', 'sculpture', 'relic']:
-                avg = np.mean(stats[f'works_{work_type}']) if stats[f'works_{work_type}'] else 0
-                row.append(f"{avg:.1f}")
-            type_table_data.append(row)
-
-        type_table = Table(type_table_data, colWidths=[2.2*inch, 1*inch, 1*inch, 1*inch, 1*inch])
-        type_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4788')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
-        ]))
-
-        self.story.append(type_table)
-        self.story.append(Spacer(1, 0.3*inch))
-
-        # Works by Theme breakdown
-        subtitle = Paragraph("Works Played by Theme", self.styles['Heading2'])
-        self.story.append(subtitle)
-        self.story.append(Spacer(1, 0.2*inch))
-
-        theme_table_data = [['Strategy', 'Nature', 'Mythology', 'Society', 'Orientalism', 'No Theme']]
-
-        for strategy in sorted(strategy_stats.keys()):
-            stats = strategy_stats[strategy]
-            row = [strategy]
-            for theme in ['nature', 'mythology', 'society', 'orientalism', 'no_theme']:
-                avg = np.mean(stats[f'works_{theme}']) if stats[f'works_{theme}'] else 0
-                row.append(f"{avg:.1f}")
-            theme_table_data.append(row)
-
-        theme_table = Table(theme_table_data, colWidths=[1.8*inch, 0.85*inch, 0.95*inch, 0.85*inch, 1*inch, 0.9*inch])
-        theme_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4788')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 9),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
-        ]))
-
-        self.story.append(theme_table)
 
     def _add_advanced_mode_statistics(self):
         """Add advanced mode specific statistics (room tiles, artist/theme usage)."""
@@ -1565,78 +1425,6 @@ class SimulationReport:
             )
             self.story.append(summary)
             self.story.append(Spacer(1, 0.3*inch))
-
-    def _add_strategy_analysis(self):
-        """Add strategy performance analysis with visualization."""
-        self.story.append(Paragraph("Strategy Performance Analysis", self.styles['CustomHeading']))
-        self.story.append(Spacer(1, 0.2*inch))
-
-        # Calculate win rates
-        strategy_wins = self.df['winner_strategy'].value_counts().sort_index()
-        total_games = len(self.df)
-
-        # Create visualization
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-
-        # Bar chart
-        strategies = strategy_wins.index
-        win_rates = (strategy_wins.values / total_games * 100)
-        colors_list = plt.cm.Set3(np.linspace(0, 1, len(strategies)))
-
-        ax1.bar(range(len(strategies)), win_rates, color=colors_list)
-        ax1.set_xlabel('Strategy')
-        ax1.set_ylabel('Win Rate (%)')
-        ax1.set_title('Win Rate by Strategy')
-        ax1.set_xticks(range(len(strategies)))
-        ax1.set_xticklabels(strategies, rotation=45, ha='right')
-        ax1.grid(axis='y', alpha=0.3)
-
-        # Pie chart
-        ax2.pie(win_rates, labels=strategies, autopct='%1.1f%%', colors=colors_list, startangle=90)
-        ax2.set_title('Win Distribution')
-
-        plt.tight_layout()
-        chart_path = Path(self.temp_dir) / 'strategy_performance.png'
-        plt.savefig(chart_path, dpi=150, bbox_inches='tight')
-        plt.close()
-
-        img = Image(str(chart_path), width=6.5*inch, height=2.7*inch)
-        self.story.append(img)
-        self.story.append(Spacer(1, 0.2*inch))
-
-        # Table of statistics
-        data = [['Strategy', 'Wins', 'Win Rate', 'Avg VP']]
-
-        # Calculate average VP per strategy
-        strategy_vp = {}
-        for pos in range(1, 5):
-            strategy_col = f'p{pos}_strategy'
-            score_col = f'p{pos}_final_score'
-            for strategy in strategies:
-                mask = self.df[strategy_col] == strategy
-                scores = self.df.loc[mask, score_col]
-                if strategy not in strategy_vp:
-                    strategy_vp[strategy] = []
-                strategy_vp[strategy].extend(scores.tolist())
-
-        for strategy, wins in strategy_wins.items():
-            win_rate = (wins / total_games) * 100
-            avg_vp = np.mean(strategy_vp[strategy]) if strategy in strategy_vp else 0
-            data.append([strategy, f"{wins:,}", f"{win_rate:.1f}%", f"{avg_vp:.1f}"])
-
-        table = Table(data, colWidths=[2.5*inch, 1*inch, 1*inch, 1*inch])
-        table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black),
-        ]))
-        self.story.append(table)
-        self.story.append(PageBreak())
 
     def _add_position_analysis(self):
         """Add position-based performance analysis."""
@@ -2620,6 +2408,429 @@ class SimulationReport:
             self.styles['BodyText']
         )
         self.story.append(summary)
+
+    def _add_annexes(self):
+        """Add annexes section with all tabular data."""
+        self.story.append(PageBreak())
+
+        title = Paragraph("ANNEXES: Detailed Tabular Data", self.styles['CustomTitle'])
+        self.story.append(title)
+        self.story.append(Spacer(1, 0.3*inch))
+
+        intro = Paragraph(
+            "This section contains comprehensive tabular data referenced throughout the report. "
+            "While the main report emphasizes visual communication through charts and graphs, "
+            "these tables provide precise numerical values for detailed analysis.",
+            self.styles['BodyText']
+        )
+        self.story.append(intro)
+        self.story.append(Spacer(1, 0.5*inch))
+
+        # Annex A: Strategy Performance Summary
+        self._add_annex_strategy_summary()
+
+        # Annex B: Player Count Statistics
+        self._add_annex_player_count_stats()
+
+        # Annex C: Works & VP Detailed Breakdown
+        self._add_annex_works_vp_breakdown()
+
+        # Annex D: Advanced Mode Tables (if applicable)
+        self._add_annex_advanced_mode()
+
+    def _add_annex_strategy_summary(self):
+        """Annex A: Strategy Performance Summary Table."""
+        self.story.append(PageBreak())
+
+        subtitle = Paragraph("Annex A: Strategy Performance Summary", self.styles['CustomHeading'])
+        self.story.append(subtitle)
+        self.story.append(Spacer(1, 0.2*inch))
+
+        # Calculate strategy statistics
+        strategy_stats = {}
+        for pos in range(1, 5):
+            strategy_col = f'p{pos}_strategy'
+            score_col = f'p{pos}_final_score'
+
+            if strategy_col not in self.df.columns or score_col not in self.df.columns:
+                continue
+
+            for idx, row in self.df.iterrows():
+                strategy = row[strategy_col]
+                score = row[score_col]
+
+                if pd.isna(strategy) or pd.isna(score):
+                    continue
+
+                if strategy not in strategy_stats:
+                    strategy_stats[strategy] = {'wins': 0, 'games': 0, 'total_score': 0}
+
+                strategy_stats[strategy]['games'] += 1
+                strategy_stats[strategy]['total_score'] += score
+
+                if row['winner_strategy'] == strategy:
+                    strategy_stats[strategy]['wins'] += 1
+
+        strategies = sorted(strategy_stats.keys())
+        table_data = [['Strategy', 'Games Played', 'Wins', 'Win Rate', 'Avg Score']]
+
+        for strategy in strategies:
+            stats = strategy_stats[strategy]
+            win_rate = (stats['wins'] / stats['games'] * 100)
+            avg_score = stats['total_score'] / stats['games']
+            table_data.append([
+                strategy,
+                f"{stats['games']:,}",
+                f"{stats['wins']:,}",
+                f"{win_rate:.1f}%",
+                f"{avg_score:.1f}"
+            ])
+
+        table = Table(table_data, colWidths=[2.2*inch, 1.1*inch, 0.9*inch, 1*inch, 1*inch])
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4788')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
+        ]))
+
+        self.story.append(table)
+        self.story.append(Spacer(1, 0.3*inch))
+
+    def _add_annex_player_count_stats(self):
+        """Annex B: Player Count Statistics."""
+        subtitle = Paragraph("Annex B: Player Count Statistics", self.styles['CustomHeading'])
+        self.story.append(subtitle)
+        self.story.append(Spacer(1, 0.2*inch))
+
+        # Determine player count for each game
+        player_count_data = {}
+        for idx, row in self.df.iterrows():
+            num_players = sum(1 for pos in range(1, 5)
+                            if f'p{pos}_strategy' in self.df.columns
+                            and not pd.isna(row[f'p{pos}_strategy']))
+
+            if num_players not in player_count_data:
+                player_count_data[num_players] = {'games': 0, 'strategies': {}}
+
+            player_count_data[num_players]['games'] += 1
+
+            winner = row['winner_strategy']
+            if not pd.isna(winner):
+                if winner not in player_count_data[num_players]['strategies']:
+                    player_count_data[num_players]['strategies'][winner] = 0
+                player_count_data[num_players]['strategies'][winner] += 1
+
+        # Summary table
+        table_data = [['Player Count', 'Total Games', '% of All Games', 'Avg Winning Score', 'Avg Score Diff']]
+
+        for player_count in sorted(player_count_data.keys()):
+            data = player_count_data[player_count]
+            total_games = data['games']
+            pct = (total_games / len(self.df)) * 100
+
+            mask = self.df.apply(lambda row: sum(1 for pos in range(1, 5)
+                                                 if f'p{pos}_strategy' in self.df.columns
+                                                 and not pd.isna(row[f'p{pos}_strategy'])) == player_count,
+                                axis=1)
+            subset = self.df[mask]
+
+            avg_winner_score = subset['winner_score'].mean() if 'winner_score' in subset.columns else 0
+            avg_score_diff = subset['score_difference'].mean() if 'score_difference' in subset.columns else 0
+
+            table_data.append([
+                f"{player_count} Players",
+                f"{total_games:,}",
+                f"{pct:.1f}%",
+                f"{avg_winner_score:.1f}",
+                f"{avg_score_diff:.1f}"
+            ])
+
+        table = Table(table_data, colWidths=[1.5*inch, 1.2*inch, 1.3*inch, 1.5*inch, 1.3*inch])
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4788')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
+        ]))
+
+        self.story.append(table)
+        self.story.append(Spacer(1, 0.3*inch))
+
+        # Strategy performance by player count table
+        subtitle2 = Paragraph("Strategy Win Rates by Player Count", self.styles['Heading2'])
+        self.story.append(subtitle2)
+        self.story.append(Spacer(1, 0.1*inch))
+
+        all_strategies = set()
+        for data in player_count_data.values():
+            all_strategies.update(data['strategies'].keys())
+
+        strategy_table_data = [['Strategy', '2P Win Rate', '3P Win Rate', '4P Win Rate']]
+
+        for strategy in sorted(all_strategies):
+            row = [strategy]
+            for pc in [2, 3, 4]:
+                if pc in player_count_data:
+                    wins = player_count_data[pc]['strategies'].get(strategy, 0)
+                    games = player_count_data[pc]['games']
+                    expected_wins = games / pc
+                    win_rate = (wins / expected_wins * 100) if expected_wins > 0 else 0
+                    row.append(f"{win_rate:.1f}%")
+                else:
+                    row.append("N/A")
+            strategy_table_data.append(row)
+
+        strat_table = Table(strategy_table_data, colWidths=[2.5*inch, 1.3*inch, 1.3*inch, 1.3*inch])
+        strat_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4788')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
+        ]))
+
+        self.story.append(strat_table)
+        self.story.append(Spacer(1, 0.3*inch))
+
+    def _add_annex_works_vp_breakdown(self):
+        """Annex C: Works & VP Detailed Breakdown."""
+        self.story.append(PageBreak())
+
+        subtitle = Paragraph("Annex C: Works & VP Detailed Breakdown", self.styles['CustomHeading'])
+        self.story.append(subtitle)
+        self.story.append(Spacer(1, 0.2*inch))
+
+        # Aggregate data by strategy
+        strategy_stats = {}
+
+        for pos in range(1, 5):
+            strategy_col = f'p{pos}_strategy'
+            if strategy_col not in self.df.columns:
+                continue
+
+            for idx, row in self.df.iterrows():
+                strategy = row[strategy_col]
+                if pd.isna(strategy):
+                    continue
+
+                if strategy not in strategy_stats:
+                    strategy_stats[strategy] = {
+                        'total_works_played': [],
+                        'total_cards_discarded': [],
+                        'total_vp_earned': [],
+                        'total_vp_spent': [],
+                        'works_crafts': [],
+                        'works_painting': [],
+                        'works_sculpture': [],
+                        'works_relic': [],
+                        'works_nature': [],
+                        'works_mythology': [],
+                        'works_society': [],
+                        'works_orientalism': [],
+                        'works_no_theme': [],
+                    }
+
+                # Collect all stats
+                if f'p{pos}_total_cards_played' in self.df.columns:
+                    strategy_stats[strategy]['total_works_played'].append(row[f'p{pos}_total_cards_played'])
+                if f'p{pos}_total_cards_discarded' in self.df.columns:
+                    strategy_stats[strategy]['total_cards_discarded'].append(row[f'p{pos}_total_cards_discarded'])
+                if f'p{pos}_total_vp_earned' in self.df.columns:
+                    strategy_stats[strategy]['total_vp_earned'].append(row[f'p{pos}_total_vp_earned'])
+                if f'p{pos}_total_vp_spent' in self.df.columns:
+                    strategy_stats[strategy]['total_vp_spent'].append(row[f'p{pos}_total_vp_spent'])
+
+                # Works by type
+                for work_type in ['crafts', 'painting', 'sculpture', 'relic']:
+                    col = f'p{pos}_works_{work_type}'
+                    if col in self.df.columns:
+                        strategy_stats[strategy][f'works_{work_type}'].append(row[col])
+
+                # Works by theme
+                for theme in ['nature', 'mythology', 'society', 'orientalism', 'no_theme']:
+                    col = f'p{pos}_works_{theme}'
+                    if col in self.df.columns:
+                        strategy_stats[strategy][f'works_{theme}'].append(row[col])
+
+        # Overall Summary Table
+        table_data = [['Strategy', 'Avg Works\nPlayed', 'Avg Cards\nDiscarded', 'Avg VP\nEarned', 'Avg VP\nSpent']]
+
+        for strategy in sorted(strategy_stats.keys()):
+            stats = strategy_stats[strategy]
+            avg_played = np.mean(stats['total_works_played']) if stats['total_works_played'] else 0
+            avg_discarded = np.mean(stats['total_cards_discarded']) if stats['total_cards_discarded'] else 0
+            avg_earned = np.mean(stats['total_vp_earned']) if stats['total_vp_earned'] else 0
+            avg_spent = np.mean(stats['total_vp_spent']) if stats['total_vp_spent'] else 0
+
+            table_data.append([
+                strategy,
+                f"{avg_played:.1f}",
+                f"{avg_discarded:.1f}",
+                f"{avg_earned:.1f}",
+                f"{avg_spent:.1f}"
+            ])
+
+        table = Table(table_data, colWidths=[2.2*inch, 1.1*inch, 1.1*inch, 1.1*inch, 1.1*inch])
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4788')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
+        ]))
+
+        self.story.append(table)
+        self.story.append(Spacer(1, 0.3*inch))
+
+        # Works by Art Type breakdown
+        subtitle2 = Paragraph("Works Played by Art Type", self.styles['Heading2'])
+        self.story.append(subtitle2)
+        self.story.append(Spacer(1, 0.2*inch))
+
+        type_table_data = [['Strategy', 'Crafts', 'Painting', 'Sculpture', 'Relic']]
+
+        for strategy in sorted(strategy_stats.keys()):
+            stats = strategy_stats[strategy]
+            row = [strategy]
+            for work_type in ['crafts', 'painting', 'sculpture', 'relic']:
+                avg = np.mean(stats[f'works_{work_type}']) if stats[f'works_{work_type}'] else 0
+                row.append(f"{avg:.1f}")
+            type_table_data.append(row)
+
+        type_table = Table(type_table_data, colWidths=[2.2*inch, 1*inch, 1*inch, 1*inch, 1*inch])
+        type_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4788')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
+        ]))
+
+        self.story.append(type_table)
+        self.story.append(Spacer(1, 0.3*inch))
+
+        # Works by Theme breakdown
+        subtitle3 = Paragraph("Works Played by Theme", self.styles['Heading2'])
+        self.story.append(subtitle3)
+        self.story.append(Spacer(1, 0.2*inch))
+
+        theme_table_data = [['Strategy', 'Nature', 'Mythology', 'Society', 'Orientalism', 'No Theme']]
+
+        for strategy in sorted(strategy_stats.keys()):
+            stats = strategy_stats[strategy]
+            row = [strategy]
+            for theme in ['nature', 'mythology', 'society', 'orientalism', 'no_theme']:
+                avg = np.mean(stats[f'works_{theme}']) if stats[f'works_{theme}'] else 0
+                row.append(f"{avg:.1f}")
+            theme_table_data.append(row)
+
+        theme_table = Table(theme_table_data, colWidths=[1.8*inch, 0.85*inch, 0.95*inch, 0.85*inch, 1*inch, 0.9*inch])
+        theme_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4788')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
+        ]))
+
+        self.story.append(theme_table)
+        self.story.append(Spacer(1, 0.3*inch))
+
+    def _add_annex_advanced_mode(self):
+        """Annex D: Advanced Mode Tables (if applicable)."""
+        has_room_tiles = 'p1_room_tiles' in self.df.columns
+        if not has_room_tiles:
+            return
+
+        self.story.append(PageBreak())
+
+        subtitle = Paragraph("Annex D: Advanced Mode Statistics", self.styles['CustomHeading'])
+        self.story.append(subtitle)
+        self.story.append(Spacer(1, 0.2*inch))
+
+        # Room Tile Acquisition Table
+        tile_stats = {}
+        for pos in range(1, 5):
+            strategy_col = f'p{pos}_strategy'
+            tiles_col = f'p{pos}_room_tiles'
+
+            if strategy_col not in self.df.columns or tiles_col not in self.df.columns:
+                continue
+
+            for idx, row in self.df.iterrows():
+                strategy = row[strategy_col]
+                tiles = row[tiles_col]
+
+                if pd.isna(strategy) or pd.isna(tiles):
+                    continue
+
+                if strategy not in tile_stats:
+                    tile_stats[strategy] = []
+                tile_stats[strategy].append(tiles)
+
+        if tile_stats:
+            subtitle2 = Paragraph("Room Tile Acquisition Statistics", self.styles['Heading2'])
+            self.story.append(subtitle2)
+            self.story.append(Spacer(1, 0.2*inch))
+
+            table_data = [['Strategy', 'Avg Tiles', 'Min', 'Max', 'Std Dev']]
+
+            for strategy in sorted(tile_stats.keys()):
+                tiles = tile_stats[strategy]
+                avg = np.mean(tiles)
+                min_val = np.min(tiles)
+                max_val = np.max(tiles)
+                std = np.std(tiles)
+
+                table_data.append([
+                    strategy,
+                    f"{avg:.2f}",
+                    f"{min_val:.0f}",
+                    f"{max_val:.0f}",
+                    f"{std:.2f}"
+                ])
+
+            table = Table(table_data, colWidths=[2.2*inch, 1*inch, 0.8*inch, 0.8*inch, 1*inch])
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4788')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('ALIGN', (0, 1), (0, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
+            ]))
+
+            self.story.append(table)
+            self.story.append(Spacer(1, 0.3*inch))
 
 
 def generate_pdf_report(csv_file: str, output_file: str) -> str:
