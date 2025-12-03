@@ -9,6 +9,7 @@ This module creates a professional PDF report with:
 - Turn-by-turn insights
 """
 
+import os
 import pandas as pd
 import numpy as np
 import matplotlib
