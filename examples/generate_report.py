@@ -1196,41 +1196,12 @@ class SimulationReport:
             self.story.append(Image(img_path, width=6.5*inch, height=4.5*inch))
             self.story.append(Spacer(1, 0.3*inch))
 
-            # Create table showing selection frequency
-            table_data = [['Advantage Card'] + sorted(advantage_selections.keys())]
-
-            for card in sorted(all_cards):
-                row = [card]
-                for strategy in sorted(advantage_selections.keys()):
-                    count = advantage_selections[strategy].get(card, 0)
-                    total = total_selections_by_strategy[strategy]
-                    pct = (count / total * 100) if total > 0 else 0
-                    row.append(f"{count}\n({pct:.1f}%)")
-                table_data.append(row)
-
-            # Calculate column widths dynamically
-            num_strategies = len(advantage_selections)
-            card_col_width = 2.2*inch
-            strategy_col_width = (6.5*inch - card_col_width) / num_strategies
-
-            col_widths = [card_col_width] + [strategy_col_width] * num_strategies
-
-            table = Table(table_data, colWidths=col_widths)
-            table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4788')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('ALIGN', (0, 1), (0, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 8),
-                ('FONTSIZE', (0, 1), (-1, -1), 8),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
-            ]))
-
-            self.story.append(table)
-            self.story.append(Spacer(1, 0.3*inch))
+            note = Paragraph(
+                "<i>Note: Detailed advantage card selection frequencies are available in Annex D.</i>",
+                self.styles['BodyText']
+            )
+            self.story.append(note)
+            self.story.append(Spacer(1, 0.2*inch))
 
         # Artist/Theme Usage (if available in logs)
         # Note: This would require parsing log files or adding columns to CSV
@@ -1241,62 +1212,12 @@ class SimulationReport:
 
         analysis_note = Paragraph(
             "Analysis of artist types and themes commissioned throughout games. "
-            "This data reveals strategic preferences and meta-game trends.",
+            "This data reveals strategic preferences and meta-game trends. "
+            "Detailed statistics are available in Annex D.",
             self.styles['BodyText']
         )
         self.story.append(analysis_note)
         self.story.append(Spacer(1, 0.2*inch))
-
-        # Check if we have works_placed columns
-        works_data = {}
-        for pos in range(1, 5):
-            strategy_col = f'p{pos}_strategy'
-            works_col = f'p{pos}_works_placed'
-
-            if strategy_col not in self.df.columns or works_col not in self.df.columns:
-                continue
-
-            for idx, row in self.df.iterrows():
-                strategy = row[strategy_col]
-                works = row[works_col]
-
-                if pd.isna(strategy) or pd.isna(works):
-                    continue
-
-                if strategy not in works_data:
-                    works_data[strategy] = []
-                works_data[strategy].append(works)
-
-        if works_data:
-            table_data = [['Strategy', 'Avg Works Placed', 'Min', 'Max']]
-
-            for strategy in sorted(works_data.keys()):
-                works = works_data[strategy]
-                avg = np.mean(works)
-                min_val = np.min(works)
-                max_val = np.max(works)
-
-                table_data.append([
-                    strategy,
-                    f"{avg:.2f}",
-                    f"{min_val:.0f}",
-                    f"{max_val:.0f}"
-                ])
-
-            table = Table(table_data, colWidths=[2.5*inch, 1.5*inch, 1*inch, 1*inch])
-            table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f4788')),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('ALIGN', (0, 1), (0, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 10),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('GRID', (0, 0), (-1, -1), 1, colors.grey),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f0f0f0')]),
-            ]))
-
-            self.story.append(table)
 
     def _add_strategy_matchups_by_player_count(self):
         """Add detailed strategy matchup analysis broken down by player count."""
