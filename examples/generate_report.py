@@ -1268,21 +1268,103 @@ class SimulationReport:
             self.story.append(note)
             self.story.append(Spacer(1, 0.2*inch))
 
-        # Artist/Theme Usage (if available in logs)
-        # Note: This would require parsing log files or adding columns to CSV
-        # For now, add placeholder text
-        subtitle = Paragraph("Artist and Theme Analysis", self.styles['Heading2'])
+        # Artist Source Analysis (Advanced Mode)
+        subtitle = Paragraph("Artist Acquisition Sources", self.styles['Heading2'])
         self.story.append(subtitle)
         self.story.append(Spacer(1, 0.2*inch))
 
-        analysis_note = Paragraph(
-            "Analysis of artist types and themes commissioned throughout games. "
-            "This data reveals strategic preferences and meta-game trends. "
-            "Detailed statistics are available in Annex D.",
-            self.styles['BodyText']
-        )
-        self.story.append(analysis_note)
-        self.story.append(Spacer(1, 0.2*inch))
+        # Check if artist source data is available
+        has_source_data = any(col.endswith('_from_discards') or col.endswith('_from_drawn') or col.endswith('_from_nearest')
+                             for col in self.df.columns)
+
+        if has_source_data:
+            # Collect artist source statistics by strategy
+            source_stats = {}
+            for pos in range(1, 5):
+                strategy_col = f'p{pos}_strategy'
+                if strategy_col not in self.df.columns:
+                    continue
+
+                for idx, row in self.df.iterrows():
+                    strategy = row[strategy_col]
+                    if pd.isna(strategy):
+                        continue
+
+                    if strategy not in source_stats:
+                        source_stats[strategy] = {'from_discards': 0, 'from_drawn': 0, 'from_nearest': 0, 'total': 0}
+
+                    # Check various column naming conventions
+                    for source_type in ['from_discards', 'from_drawn', 'from_nearest']:
+                        col_variants = [
+                            f'p{pos}_{source_type}',
+                            f'p{pos}_artists_{source_type}',
+                            f'p{pos}_cards_{source_type}'
+                        ]
+                        for col in col_variants:
+                            if col in self.df.columns and not pd.isna(row[col]):
+                                source_stats[strategy][source_type] += row[col]
+                                source_stats[strategy]['total'] += row[col]
+                                break
+
+            if source_stats and any(s['total'] > 0 for s in source_stats.values()):
+                # Create stacked bar chart
+                strategies = sorted([s for s in source_stats.keys() if source_stats[s]['total'] > 0])
+
+                discards = [source_stats[s]['from_discards'] for s in strategies]
+                drawn = [source_stats[s]['from_drawn'] for s in strategies]
+                nearest = [source_stats[s]['from_nearest'] for s in strategies]
+
+                fig, ax = plt.subplots(figsize=self.plot_style['figsize_wide'])
+                x = np.arange(len(strategies))
+                width = 0.6
+
+                p1 = ax.bar(x, discards, width, label='From Discards', color='#8b4513', alpha=0.8)
+                p2 = ax.bar(x, drawn, width, bottom=discards, label='Newly Drawn', color='#1f4788', alpha=0.8)
+                p3 = ax.bar(x, nearest, width, bottom=np.array(discards) + np.array(drawn),
+                           label='From Nearest Player', color='#2c5f2d', alpha=0.8)
+
+                ax.set_ylabel('Artist Cards Acquired', fontsize=self.plot_style['label_fontsize'])
+                ax.set_title('Artist Acquisition Sources by Strategy', fontsize=self.plot_style['title_fontsize'])
+                ax.set_xticks(x)
+                ax.set_xticklabels(strategies, rotation=45, ha='right', fontsize=self.plot_style['tick_fontsize'])
+                ax.legend(fontsize=self.plot_style['legend_fontsize'])
+                ax.grid(axis='y', alpha=0.3)
+
+                img_path = os.path.join(self.temp_dir, 'artist_sources.png')
+                plt.tight_layout()
+                plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
+                plt.close()
+
+                self.story.append(Image(img_path, width=6.5*inch, height=4.5*inch))
+                self.story.append(Spacer(1, 0.2*inch))
+
+                explanation = Paragraph(
+                    "<b>What this shows:</b> Distribution of where artists were acquired from: discard pile (brown), "
+                    "newly drawn cards (blue), or from nearest player (green).<br/><br/>"
+                    "<b>How to interpret:</b> High 'from discards' suggests opportunistic play and efficient card cycling. "
+                    "High 'from nearest' indicates successful interaction with opponents' discards. "
+                    "High 'newly drawn' may indicate either good luck or less interaction with the discard economy.<br/><br/>"
+                    "<b>Why it matters:</b> Artist source distribution reveals strategic tendencies and adaptability. "
+                    "Strategies that effectively use all three sources show better resource management.",
+                    self.styles['PlotExplanation']
+                )
+                self.story.append(explanation)
+                self.story.append(Spacer(1, 0.2*inch))
+            else:
+                note = Paragraph(
+                    "<i>Artist source data available but no artists were acquired from tracked sources in these games.</i>",
+                    self.styles['BodyText']
+                )
+                self.story.append(note)
+                self.story.append(Spacer(1, 0.2*inch))
+        else:
+            note = Paragraph(
+                "<i>Artist acquisition source tracking not available in this dataset. "
+                "To enable this analysis, ensure the simulation tracks artist sources (from_discards, from_drawn, from_nearest_player).</i>",
+                self.styles['BodyText']
+            )
+            self.story.append(note)
+            self.story.append(Spacer(1, 0.2*inch))
 
     def _add_strategy_matchups_by_player_count(self):
         """Add detailed strategy matchup analysis broken down by player count."""
@@ -1374,68 +1456,84 @@ class SimulationReport:
                                 'games': games
                             })
 
-                # Sort by win rate (show ALL matchups, not just top)
+                # Sort by win rate
                 viz_data.sort(key=lambda x: x['win_rate'], reverse=True)
 
                 if viz_data:
-                    # Create horizontal bar chart - adjust size based on number of matchups
                     num_matchups = len(viz_data)
-                    fig_height = max(8, min(30, num_matchups * 0.3))  # Limit max height to 30 inches
-                    fig, ax = plt.subplots(figsize=(10, fig_height))
 
-                    labels = [item['label'] for item in viz_data]
-                    win_rates = [item['win_rate'] for item in viz_data]
-                    games_counts = [item['games'] for item in viz_data]
+                    # Split into chunks for readability
+                    # 2P: single page (usually fewer matchups)
+                    # 3P/4P: split into chunks of 45 matchups per page
+                    if player_count == 2 or num_matchups <= 50:
+                        chunks = [viz_data]
+                    else:
+                        chunk_size = 45
+                        chunks = [viz_data[i:i + chunk_size] for i in range(0, num_matchups, chunk_size)]
 
-                    # Color bars based on win rate
-                    colors_list = []
-                    for wr in win_rates:
-                        if wr >= 60:
-                            colors_list.append(self.colors['success'])
-                        elif wr >= 40:
-                            colors_list.append(self.colors['primary'])
+                    for chunk_idx, chunk in enumerate(chunks):
+                        num_in_chunk = len(chunk)
+
+                        # Create horizontal bar chart
+                        fig_height = max(6, min(9, num_in_chunk * 0.2))
+                        fig, ax = plt.subplots(figsize=(10, fig_height))
+
+                        labels = [item['label'] for item in chunk]
+                        win_rates = [item['win_rate'] for item in chunk]
+                        games_counts = [item['games'] for item in chunk]
+
+                        # Color bars based on win rate
+                        colors_list = []
+                        for wr in win_rates:
+                            if wr >= 60:
+                                colors_list.append(self.colors['success'])
+                            elif wr >= 40:
+                                colors_list.append(self.colors['primary'])
+                            else:
+                                colors_list.append(self.colors['danger'])
+
+                        bars = ax.barh(range(len(labels)), win_rates, color=colors_list, edgecolor='black', alpha=0.8)
+                        ax.set_yticks(range(len(labels)))
+
+                        # Adjust font size based on number in chunk
+                        label_fontsize = max(6, min(9, 250 / num_in_chunk))
+                        ax.set_yticklabels(labels, fontsize=label_fontsize)
+
+                        ax.set_xlabel('Win Rate (%)', fontsize=self.plot_style['label_fontsize'])
+
+                        # Title includes chunk info if multiple chunks
+                        if len(chunks) > 1:
+                            title = f'{player_count}-Player Matchups (Part {chunk_idx + 1}/{len(chunks)}, min 10 games)'
                         else:
-                            colors_list.append(self.colors['danger'])
+                            title = f'{player_count}-Player Matchups (min 10 games)'
+                        ax.set_title(title, fontsize=self.plot_style['title_fontsize'], fontweight='bold')
 
-                    bars = ax.barh(range(len(labels)), win_rates, color=colors_list, edgecolor='black', alpha=0.8)
-                    ax.set_yticks(range(len(labels)))
+                        ax.axvline(50, color='red', linestyle='--', linewidth=1, alpha=0.5, label='50% baseline')
+                        ax.set_xlim(0, 100)
+                        ax.grid(axis='x', alpha=0.3)
+                        ax.legend(fontsize=self.plot_style['legend_fontsize'])
 
-                    # Adjust font size based on number of matchups
-                    label_fontsize = max(5, min(8, 200 / num_matchups))
-                    ax.set_yticklabels(labels, fontsize=label_fontsize)
+                        # Add value labels
+                        value_fontsize = max(5, min(8, 180 / num_in_chunk))
+                        for i, (bar, games) in enumerate(zip(bars, games_counts)):
+                            width = bar.get_width()
+                            ax.text(width + 2, bar.get_y() + bar.get_height()/2.,
+                                   f'{width:.1f}% (n={games})',
+                                   ha='left', va='center', fontsize=value_fontsize)
 
-                    ax.set_xlabel('Win Rate (%)', fontsize=self.plot_style['label_fontsize'])
-                    ax.set_title(f'All Matchups: {player_count}-Player Games (min 10 games)',
-                                fontsize=self.plot_style['title_fontsize'], fontweight='bold')
-                    ax.axvline(50, color='red', linestyle='--', linewidth=1, alpha=0.5, label='50% baseline')
-                    ax.set_xlim(0, 100)
-                    ax.grid(axis='x', alpha=0.3)
-                    ax.legend(fontsize=self.plot_style['legend_fontsize'])
+                        plt.tight_layout()
+                        img_path = os.path.join(self.temp_dir, f'matchups_{player_count}p_part{chunk_idx + 1}.png')
+                        plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
+                        plt.close()
 
-                    # Add value labels - adjust font size
-                    value_fontsize = max(4, min(7, 150 / num_matchups))
-                    for i, (bar, games) in enumerate(zip(bars, games_counts)):
-                        width = bar.get_width()
-                        ax.text(width + 2, bar.get_y() + bar.get_height()/2.,
-                               f'{width:.1f}% (n={games})',
-                               ha='left', va='center', fontsize=value_fontsize)
+                        # Add page break before each chunk (except first)
+                        if chunk_idx > 0:
+                            self.story.append(PageBreak())
 
-                    plt.tight_layout()
-                    img_path = os.path.join(self.temp_dir, f'matchups_{player_count}p.png')
-                    plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
-                    plt.close()
-
-                    # Adjust image size in PDF - constrain to page limits
-                    # Page frame is ~456 points wide and ~690 points tall
-                    # Using 6.3 inches width (453.6 points) and max 9.5 inches height (684 points)
-                    pdf_height = max(4*inch, min(9.5*inch, num_matchups * 0.18*inch))
-
-                    # If the image is very tall, add a page break before it
-                    if pdf_height > 8*inch:
-                        self.story.append(PageBreak())
-
-                    self.story.append(Image(img_path, width=6.3*inch, height=pdf_height))
-                    self.story.append(Spacer(1, 0.2*inch))
+                        # Calculate appropriate PDF height
+                        pdf_height = max(4*inch, min(9*inch, num_in_chunk * 0.18*inch))
+                        self.story.append(Image(img_path, width=6.3*inch, height=pdf_height))
+                        self.story.append(Spacer(1, 0.2*inch))
                 else:
                     note = Paragraph(
                         f"<i>Not enough matchup data with sufficient sample sizes for {player_count}-player games.</i>",
