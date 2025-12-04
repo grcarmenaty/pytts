@@ -1495,9 +1495,9 @@ class SimulationReport:
             position_data_by_player_count[player_count] = position_data
 
         # Create 3 heatmaps: 2P, 3P, 4P
-        fig, axes = plt.subplots(1, 3, figsize=(14, 6))
+        fig, axes = plt.subplots(1, 3, figsize=(14, 7))  # Increased height for colorbar
         fig.suptitle('Strategy Win Rate by Starting Position and Player Count',
-                    fontsize=self.plot_style['title_fontsize'], fontweight='bold')
+                    fontsize=self.plot_style['title_fontsize'], fontweight='bold', y=0.98)
 
         plot_configs = [
             (axes[0], 2, '2-Player Games', ['P1', 'P2']),
@@ -1529,11 +1529,11 @@ class SimulationReport:
                 ax.set_xticks([])
                 ax.set_yticks([])
 
-        # Add horizontal colorbar below all plots
-        cbar = fig.colorbar(im, ax=axes, orientation='horizontal', label='Win Rate (%)',
-                           fraction=0.05, pad=0.15, aspect=40)
-
-        plt.tight_layout()
+        # Adjust layout to make room for colorbar, then add horizontal colorbar below
+        plt.subplots_adjust(bottom=0.2)  # Make room at bottom
+        cbar_ax = fig.add_axes([0.15, 0.08, 0.7, 0.03])  # [left, bottom, width, height]
+        cbar = fig.colorbar(im, cax=cbar_ax, orientation='horizontal', label='Win Rate (%)')
+        cbar.ax.tick_params(labelsize=9)
         img_path = os.path.join(self.temp_dir, 'position_heatmap_by_player_count.png')
         plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
         plt.close()
@@ -1986,9 +1986,9 @@ class SimulationReport:
                     h2h_by_player_count['Overall'][opponent][winner_strategy]['games'] += 1
 
         # Create 4 heatmaps: 2P, 3P, 4P, Overall
-        fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+        fig, axes = plt.subplots(2, 2, figsize=(14, 13))  # Increased height for colorbar
         fig.suptitle('Head-to-Head Win Rate Matrices by Player Count',
-                    fontsize=self.plot_style['title_fontsize'] + 2, fontweight='bold')
+                    fontsize=self.plot_style['title_fontsize'] + 2, fontweight='bold', y=0.99)
 
         plot_configs = [
             (axes[0, 0], 2, '2-Player Games'),
@@ -2035,10 +2035,11 @@ class SimulationReport:
 
             ax.set_title(title, fontsize=self.plot_style['label_fontsize'], fontweight='bold')
 
-        # Add single colorbar for all plots
-        fig.colorbar(im, ax=axes, label='Win Rate %', fraction=0.046, pad=0.04)
-
-        plt.tight_layout()
+        # Adjust layout to make room for colorbar, then add horizontal colorbar below
+        plt.subplots_adjust(bottom=0.08)  # Make room at bottom
+        cbar_ax = fig.add_axes([0.15, 0.02, 0.7, 0.02])  # [left, bottom, width, height]
+        cbar = fig.colorbar(im, cax=cbar_ax, orientation='horizontal', label='Win Rate (%)')
+        cbar.ax.tick_params(labelsize=9)
         img_path = os.path.join(self.temp_dir, 'h2h_matrix_by_player_count.png')
         plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
         plt.close()
