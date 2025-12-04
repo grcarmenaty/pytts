@@ -100,6 +100,11 @@ class ModernismeAdvancedPlayer(Player):
             'cards_in_hand_end': 0,
             'works_by_type': defaultdict(int),
             'works_by_theme': defaultdict(int),
+            'artists_by_type': defaultdict(int),
+            'artists_by_theme': defaultdict(int),
+            'artists_from_discards': 0,
+            'artists_from_drawn': 0,
+            'artists_from_nearest': 0,
             'total_vp_spent': 0,
             'total_vp_earned_from_plays': 0,
             'room_tiles_acquired': 0,
@@ -112,8 +117,36 @@ class ModernismeAdvancedPlayer(Player):
         self.current_turn_stats['cards_in_hand_end'] = len(self.hand.cards)
         self.current_turn_stats['works_by_type'] = dict(self.current_turn_stats['works_by_type'])
         self.current_turn_stats['works_by_theme'] = dict(self.current_turn_stats['works_by_theme'])
+        self.current_turn_stats['artists_by_type'] = dict(self.current_turn_stats['artists_by_type'])
+        self.current_turn_stats['artists_by_theme'] = dict(self.current_turn_stats['artists_by_theme'])
         self.turn_stats.append(self.current_turn_stats.copy())
         self.current_turn_stats = {}
+
+    def track_artist_acquisition(self, artist: Card, source: str):
+        """Track an artist acquisition for statistics.
+
+        Args:
+            artist: The artist card acquired
+            source: One of 'from_drawn', 'from_discards', 'from_nearest'
+        """
+        if not self.current_turn_stats:
+            return
+
+        # Track artist type
+        art_type = artist.get_property("art_type")
+        if art_type:
+            type_key = art_type.value  # Get string value from enum
+            self.current_turn_stats['artists_by_type'][type_key] += 1
+
+        # Track artist theme
+        theme = artist.get_property("theme")
+        if theme and theme != Theme.NONE:
+            theme_key = theme.value  # Get string value from enum
+            self.current_turn_stats['artists_by_theme'][theme_key] += 1
+
+        # Track acquisition source
+        if source in ['from_drawn', 'from_discards', 'from_nearest']:
+            self.current_turn_stats[f'artists_{source}'] += 1
 
     def check_milestone(self, game: 'ModernismeAdvancedGame') -> bool:
         """Check if player has passed a VP milestone and should pick an advantage card."""
@@ -512,6 +545,32 @@ class ModernismeAdvancedGame(Game):
             for theme in ['Nature', 'Mythology', 'Society', 'Orientalism', 'No theme']:
                 theme_key = theme.lower().replace(' ', '_')
                 data[f'p{position}_works_{theme_key}'] = works_by_theme.get(theme, 0)
+
+            # Artist selection tracking
+            artists_by_type = {}
+            for turn in player.turn_stats:
+                for art_type, count in turn.get('artists_by_type', {}).items():
+                    artists_by_type[art_type] = artists_by_type.get(art_type, 0) + count
+
+            for art_type in ['Crafts', 'Painting', 'Sculpture', 'Relic']:
+                data[f'p{position}_artists_{art_type.lower()}'] = artists_by_type.get(art_type, 0)
+
+            artists_by_theme = {}
+            for turn in player.turn_stats:
+                for theme, count in turn.get('artists_by_theme', {}).items():
+                    artists_by_theme[theme] = artists_by_theme.get(theme, 0) + count
+
+            for theme in ['Nature', 'Mythology', 'Society', 'Orientalism']:
+                data[f'p{position}_artists_{theme.lower()}'] = artists_by_theme.get(theme, 0)
+
+            # Artist acquisition source tracking
+            total_from_discards = sum(turn.get('artists_from_discards', 0) for turn in player.turn_stats)
+            total_from_drawn = sum(turn.get('artists_from_drawn', 0) for turn in player.turn_stats)
+            total_from_nearest = sum(turn.get('artists_from_nearest', 0) for turn in player.turn_stats)
+
+            data[f'p{position}_from_discards'] = total_from_discards
+            data[f'p{position}_from_drawn'] = total_from_drawn
+            data[f'p{position}_from_nearest'] = total_from_nearest
 
         winner = max(self.players, key=lambda p: (p.score, -sum(1 for slot in self.get_board(f"{p.name}_board").slots if not slot.is_empty())))
         winner_position = self.players.index(winner) + 1
@@ -962,6 +1021,11 @@ class ModernismeAdvancedGame(Game):
                 old_artists = player.active_artists[:]
                 player.active_artists = artist_deck.draw(2)
                 self.artist_discard.extend(old_artists)
+
+                # Track both new artists acquired from deck
+                for artist in player.active_artists:
+                    player.track_artist_acquisition(artist, 'from_drawn')
+
                 self.log(f"      → Replaced both artists: {[a.name for a in player.active_artists]}")
                 return True
             return False
@@ -1104,6 +1168,9 @@ class ModernismeAdvancedGame(Game):
         dismiss_index = player.active_artists.index(artist_to_dismiss)
         player.active_artists[dismiss_index] = selected_artist
 
+        # Track artist acquisition
+        player.track_artist_acquisition(selected_artist, 'from_drawn')
+
         self.log(f"  {player.name} hired {selected_artist.name}, dismissed {artist_to_dismiss.name}")
 
         # Prepare options for neighbor to steal
@@ -1132,6 +1199,9 @@ class ModernismeAdvancedGame(Game):
 
                 dismiss_index = neighbor.active_artists.index(neighbor_dismisses)
                 neighbor.active_artists[dismiss_index] = stolen_artist
+
+                # Track artist acquisition from neighbor
+                neighbor.track_artist_acquisition(stolen_artist, 'from_nearest')
 
                 self.log(f"  → {neighbor.name} stole {stolen_artist.name}, dismissed {neighbor_dismisses.name}")
 
