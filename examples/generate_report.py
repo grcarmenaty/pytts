@@ -1366,6 +1366,188 @@ class SimulationReport:
             self.story.append(note)
             self.story.append(Spacer(1, 0.2*inch))
 
+        # Artist Type and Theme Selection Analysis (Advanced Mode)
+        subtitle = Paragraph("Artist Type and Theme Selection", self.styles['Heading2'])
+        self.story.append(subtitle)
+        self.story.append(Spacer(1, 0.2*inch))
+
+        # Check if artist selection data is available (by type)
+        has_type_data = any(col.endswith('_artists_selected_crafts') or
+                           col.endswith('_artists_selected_painting') or
+                           col.endswith('_artists_selected_sculpture') or
+                           col.endswith('_artists_selected_relic') or
+                           col.endswith('_artists_crafts') or
+                           col.endswith('_artists_painting') or
+                           col.endswith('_artists_sculpture') or
+                           col.endswith('_artists_relic')
+                           for col in self.df.columns)
+
+        # Check if artist selection data is available (by theme)
+        has_theme_data = any(col.endswith('_artists_selected_nature') or
+                            col.endswith('_artists_selected_mythology') or
+                            col.endswith('_artists_selected_society') or
+                            col.endswith('_artists_selected_orientalism') or
+                            col.endswith('_artists_nature') or
+                            col.endswith('_artists_mythology') or
+                            col.endswith('_artists_society') or
+                            col.endswith('_artists_orientalism')
+                            for col in self.df.columns)
+
+        if has_type_data or has_theme_data:
+            # Collect artist selection statistics by strategy
+            type_stats = {}
+            theme_stats = {}
+
+            for pos in range(1, 5):
+                strategy_col = f'p{pos}_strategy'
+                if strategy_col not in self.df.columns:
+                    continue
+
+                for idx, row in self.df.iterrows():
+                    strategy = row[strategy_col]
+                    if pd.isna(strategy):
+                        continue
+
+                    if strategy not in type_stats:
+                        type_stats[strategy] = {'crafts': 0, 'painting': 0, 'sculpture': 0, 'relic': 0}
+                    if strategy not in theme_stats:
+                        theme_stats[strategy] = {'nature': 0, 'mythology': 0, 'society': 0, 'orientalism': 0}
+
+                    # Check for artist type columns
+                    if has_type_data:
+                        for art_type in ['crafts', 'painting', 'sculpture', 'relic']:
+                            col_variants = [
+                                f'p{pos}_artists_selected_{art_type}',
+                                f'p{pos}_artists_{art_type}',
+                                f'p{pos}_artist_type_{art_type}'
+                            ]
+                            for col in col_variants:
+                                if col in self.df.columns and not pd.isna(row[col]):
+                                    type_stats[strategy][art_type] += row[col]
+                                    break
+
+                    # Check for artist theme columns
+                    if has_theme_data:
+                        for theme in ['nature', 'mythology', 'society', 'orientalism']:
+                            col_variants = [
+                                f'p{pos}_artists_selected_{theme}',
+                                f'p{pos}_artists_{theme}',
+                                f'p{pos}_artist_theme_{theme}'
+                            ]
+                            for col in col_variants:
+                                if col in self.df.columns and not pd.isna(row[col]):
+                                    theme_stats[strategy][theme] += row[col]
+                                    break
+
+            # Create visualizations
+            plots_created = False
+
+            # Artist Type Selection Chart
+            if has_type_data and type_stats and any(sum(s.values()) > 0 for s in type_stats.values()):
+                strategies = sorted([s for s in type_stats.keys() if sum(type_stats[s].values()) > 0])
+
+                crafts = [type_stats[s]['crafts'] for s in strategies]
+                painting = [type_stats[s]['painting'] for s in strategies]
+                sculpture = [type_stats[s]['sculpture'] for s in strategies]
+                relic = [type_stats[s]['relic'] for s in strategies]
+
+                fig, ax = plt.subplots(figsize=self.plot_style['figsize_wide'])
+                x = np.arange(len(strategies))
+                width = 0.6
+
+                p1 = ax.bar(x, crafts, width, label='Crafts', color='#8b4513', alpha=0.8)
+                p2 = ax.bar(x, painting, width, bottom=crafts, label='Painting', color='#4169e1', alpha=0.8)
+                p3 = ax.bar(x, sculpture, width, bottom=np.array(crafts) + np.array(painting),
+                           label='Sculpture', color='#808080', alpha=0.8)
+                p4 = ax.bar(x, relic, width,
+                           bottom=np.array(crafts) + np.array(painting) + np.array(sculpture),
+                           label='Relic', color='#ffd700', alpha=0.8)
+
+                ax.set_ylabel('Artists Selected', fontsize=self.plot_style['label_fontsize'])
+                ax.set_title('Artist Type Selection by Strategy', fontsize=self.plot_style['title_fontsize'])
+                ax.set_xticks(x)
+                ax.set_xticklabels(strategies, rotation=45, ha='right', fontsize=self.plot_style['tick_fontsize'])
+                ax.legend(fontsize=self.plot_style['legend_fontsize'])
+                ax.grid(axis='y', alpha=0.3)
+
+                img_path = os.path.join(self.temp_dir, 'artist_type_selection.png')
+                plt.tight_layout()
+                plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
+                plt.close()
+
+                self.story.append(Image(img_path, width=6.5*inch, height=4.5*inch))
+                self.story.append(Spacer(1, 0.2*inch))
+                plots_created = True
+
+            # Artist Theme Selection Chart
+            if has_theme_data and theme_stats and any(sum(s.values()) > 0 for s in theme_stats.values()):
+                strategies = sorted([s for s in theme_stats.keys() if sum(theme_stats[s].values()) > 0])
+
+                nature = [theme_stats[s]['nature'] for s in strategies]
+                mythology = [theme_stats[s]['mythology'] for s in strategies]
+                society = [theme_stats[s]['society'] for s in strategies]
+                orientalism = [theme_stats[s]['orientalism'] for s in strategies]
+
+                fig, ax = plt.subplots(figsize=self.plot_style['figsize_wide'])
+                x = np.arange(len(strategies))
+                width = 0.6
+
+                p1 = ax.bar(x, nature, width, label='Nature', color='#2e8b57', alpha=0.8)
+                p2 = ax.bar(x, mythology, width, bottom=nature, label='Mythology', color='#9370db', alpha=0.8)
+                p3 = ax.bar(x, society, width, bottom=np.array(nature) + np.array(mythology),
+                           label='Society', color='#cd853f', alpha=0.8)
+                p4 = ax.bar(x, orientalism, width,
+                           bottom=np.array(nature) + np.array(mythology) + np.array(society),
+                           label='Orientalism', color='#dc143c', alpha=0.8)
+
+                ax.set_ylabel('Artists Selected', fontsize=self.plot_style['label_fontsize'])
+                ax.set_title('Artist Theme Selection by Strategy', fontsize=self.plot_style['title_fontsize'])
+                ax.set_xticks(x)
+                ax.set_xticklabels(strategies, rotation=45, ha='right', fontsize=self.plot_style['tick_fontsize'])
+                ax.legend(fontsize=self.plot_style['legend_fontsize'])
+                ax.grid(axis='y', alpha=0.3)
+
+                img_path = os.path.join(self.temp_dir, 'artist_theme_selection.png')
+                plt.tight_layout()
+                plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
+                plt.close()
+
+                self.story.append(Image(img_path, width=6.5*inch, height=4.5*inch))
+                self.story.append(Spacer(1, 0.2*inch))
+                plots_created = True
+
+            if plots_created:
+                explanation = Paragraph(
+                    "<b>What this shows:</b> Distribution of artist types and themes selected by each strategy. "
+                    "This tracks which artists are acquired/drawn, not which works are ultimately played.<br/><br/>"
+                    "<b>How to interpret:</b> Artist type preferences reveal strategic focus (crafts for early points, "
+                    "painting for versatility, sculpture for late-game scoring, relics for special abilities). "
+                    "Theme preferences show alignment with scoring opportunities or tableau synergies.<br/><br/>"
+                    "<b>Why it matters:</b> Understanding artist selection patterns helps identify whether strategies "
+                    "are successfully acquiring the cards they need or adapting to available options.",
+                    self.styles['PlotExplanation']
+                )
+                self.story.append(explanation)
+                self.story.append(Spacer(1, 0.2*inch))
+            else:
+                note = Paragraph(
+                    "<i>Artist type/theme selection data available but no artists were tracked in these games.</i>",
+                    self.styles['BodyText']
+                )
+                self.story.append(note)
+                self.story.append(Spacer(1, 0.2*inch))
+        else:
+            note = Paragraph(
+                "<i>Artist type and theme selection tracking not available in this dataset. "
+                "To enable this analysis, ensure the simulation tracks artist selections by type "
+                "(p{pos}_artists_crafts, p{pos}_artists_painting, p{pos}_artists_sculpture, p{pos}_artists_relic) "
+                "and by theme (p{pos}_artists_nature, p{pos}_artists_mythology, p{pos}_artists_society, p{pos}_artists_orientalism). "
+                "Alternative column names like p{pos}_artists_selected_{type/theme} are also supported.</i>",
+                self.styles['BodyText']
+            )
+            self.story.append(note)
+            self.story.append(Spacer(1, 0.2*inch))
+
     def _add_strategy_matchups_by_player_count(self):
         """Add detailed strategy matchup analysis broken down by player count."""
         self.story.append(PageBreak())
