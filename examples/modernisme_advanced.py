@@ -1191,8 +1191,10 @@ class ModernismeAdvancedGame(Game):
         else:
             artist_to_dismiss = player.active_artists[0]
 
-        # Replace the dismissed artist with the new one
+        # Get the index of the dismissed artist (for adjacency rules)
         dismiss_index = player.active_artists.index(artist_to_dismiss)
+
+        # Replace the dismissed artist with the new one
         player.active_artists[dismiss_index] = selected_artist
 
         # Track artist acquisition
@@ -1200,27 +1202,62 @@ class ModernismeAdvancedGame(Game):
 
         self.log(f"  Dismissed {artist_to_dismiss.name}")
 
-        # Prepare options for neighbor to steal (only if we drew artists)
-        if drawn_artists:
-            unchosen_artists = [a for a in drawn_artists if a != selected_artist]
-            available_for_neighbor = unchosen_artists + [artist_to_dismiss]
-        else:
-            # If we took from discard, neighbor can only steal the dismissed artist
-            available_for_neighbor = [artist_to_dismiss]
+        # NEIGHBOR'S TURN TO STEAL (before active player's dismissed artist goes to discard)
+        # Prepare options for neighbor to steal
+        # Note: neighbor is always the NEXT player (clockwise), so they can only steal
+        # the artist that was at index [1] (right-facing position)
+        available_for_neighbor = []
 
-        # Neighbor can steal one of the unchosen or dismissed artists
-        if neighbor and available_for_neighbor:
-            self.log(f"  {neighbor.name} can steal from: {[a.name for a in available_for_neighbor]}")
+        if drawn_artists:
+            # Unchosen drawn artists are always available
+            unchosen_artists = [a for a in drawn_artists if a != selected_artist]
+            available_for_neighbor.extend(unchosen_artists)
+
+        # Dismissed artist can only be stolen if it was in the "facing" position
+        # Since neighbor is next player (clockwise), they can only steal from index [1]
+        if dismiss_index == 1:
+            available_for_neighbor.append(artist_to_dismiss)
+            can_steal_dismissed = True
+        else:
+            can_steal_dismissed = False
+
+        # Neighbor can also take from discard pile (if they took from discard,
+        # or if there's still an artist on top after active player took)
+        neighbor_discard_option = self.artist_discard[-1] if self.artist_discard else None
+
+        # Neighbor decides whether to steal
+        if neighbor and (available_for_neighbor or neighbor_discard_option):
+            self.log(f"  {neighbor.name} can steal from: {[a.name for a in available_for_neighbor]}" +
+                    (f" or discard pile ({neighbor_discard_option.name})" if neighbor_discard_option else ""))
+
+            stolen_artist = None
+            stolen_from_discard = False
 
             if neighbor.ai_strategy:
-                stolen_artist = neighbor.ai_strategy.steal_artist_from_neighbor(neighbor, self, available_for_neighbor)
+                # Strategy decides what to steal (including discard option)
+                stolen_artist, stolen_from_discard = neighbor.ai_strategy.steal_artist_from_neighbor(
+                    neighbor, self, available_for_neighbor, neighbor_discard_option
+                )
             else:
-                # Random chance to steal (30% chance)
-                stolen_artist = random.choice(available_for_neighbor) if random.random() < 0.3 else None
+                # Random fallback (30% chance to steal something)
+                if random.random() < 0.3:
+                    # 50/50 between available artists and discard
+                    if neighbor_discard_option and random.random() < 0.5:
+                        stolen_artist = neighbor_discard_option
+                        stolen_from_discard = True
+                    elif available_for_neighbor:
+                        stolen_artist = random.choice(available_for_neighbor)
 
             if stolen_artist:
-                # Neighbor steals the artist
-                available_for_neighbor.remove(stolen_artist)
+                # Remove from available pool
+                if stolen_from_discard:
+                    self.artist_discard.pop()
+                elif stolen_artist in available_for_neighbor:
+                    available_for_neighbor.remove(stolen_artist)
+
+                # If they stole the dismissed artist, mark it so it doesn't go to discard
+                if stolen_artist == artist_to_dismiss:
+                    can_steal_dismissed = False  # Already stolen, don't discard it
 
                 # Neighbor must dismiss one of their artists
                 if neighbor.ai_strategy:
@@ -1228,21 +1265,36 @@ class ModernismeAdvancedGame(Game):
                 else:
                     neighbor_dismisses = neighbor.active_artists[0]
 
-                dismiss_index = neighbor.active_artists.index(neighbor_dismisses)
-                neighbor.active_artists[dismiss_index] = stolen_artist
+                neighbor_dismiss_idx = neighbor.active_artists.index(neighbor_dismisses)
+                neighbor.active_artists[neighbor_dismiss_idx] = stolen_artist
 
                 # Track artist acquisition from neighbor
-                neighbor.track_artist_acquisition(stolen_artist, 'from_nearest')
+                source = 'from_discards' if stolen_from_discard else 'from_nearest'
+                neighbor.track_artist_acquisition(stolen_artist, source)
 
-                self.log(f"  → {neighbor.name} stole {stolen_artist.name}, dismissed {neighbor_dismisses.name}")
+                source_str = "discard pile" if stolen_from_discard else f"{player.name}"
+                self.log(f"  → {neighbor.name} stole {stolen_artist.name} from {source_str}, dismissed {neighbor_dismisses.name}")
 
                 # Neighbor's dismissed artist goes to discard
                 self.artist_discard.append(neighbor_dismisses)
 
-        # All remaining artists go to discard
+        # NOW active player's dismissed artist goes to discard (if not stolen)
+        # Only discard if it wasn't stolen (would have been removed from available_for_neighbor)
+        if dismiss_index == 0:
+            # Artist at index [0] can't be stolen by next player, always goes to discard
+            self.artist_discard.append(artist_to_dismiss)
+            self.log(f"  {artist_to_dismiss.name} → artist discard pile")
+        elif dismiss_index == 1 and artist_to_dismiss in available_for_neighbor:
+            # Artist at index [1] was available but wasn't stolen
+            self.artist_discard.append(artist_to_dismiss)
+            self.log(f"  {artist_to_dismiss.name} → artist discard pile")
+        # If dismiss_index == 1 and artist not in available_for_neighbor, it was stolen - don't discard
+
+        # All remaining unchosen drawn artists go to discard
         for artist in available_for_neighbor:
-            self.artist_discard.append(artist)
-            self.log(f"  {artist.name} → artist discard pile")
+            if artist != artist_to_dismiss:  # Don't double-discard
+                self.artist_discard.append(artist)
+                self.log(f"  {artist.name} → artist discard pile")
 
     def end_season(self) -> None:
         """Handle end of season."""

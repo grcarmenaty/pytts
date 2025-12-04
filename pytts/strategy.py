@@ -231,26 +231,29 @@ class Strategy(ABC):
         self,
         player: 'ModernismePlayer',
         game: 'ModernismeGame',
-        available_artists: List['Card']
-    ) -> Optional['Card']:
+        available_artists: List['Card'],
+        discard_option: Optional['Card'] = None
+    ) -> Tuple[Optional['Card'], bool]:
         """
         Decide whether to steal an artist from a neighbor.
 
         Args:
             player: The player making the decision
             game: The game instance
-            available_artists: List of artists available to steal
+            available_artists: List of artists available to steal (from drawn/dismissed)
+            discard_option: The artist on top of the discard pile (if available)
 
         Returns:
-            The artist to steal, or None if shouldn't steal
+            Tuple of (artist_to_steal, is_from_discard)
+            - artist_to_steal: The artist to steal, or None if shouldn't steal
+            - is_from_discard: True if stealing from discard pile, False if from neighbor
         """
-        # Default: steal if there's an artist that matches works in hand
-        if not available_artists:
-            return None
-
+        # Evaluate all options (including discard) and only steal if beneficial
         best_artist = None
-        best_match_count = 0  # Steal if at least 1 match (lowered from 2)
+        best_match_count = 0
+        is_from_discard = False
 
+        # Check available artists from neighbor
         for artist in available_artists:
             artist_type = artist.get_property("art_type")
             match_count = sum(1 for work in player.hand.cards
@@ -258,12 +261,23 @@ class Strategy(ABC):
             if match_count > best_match_count:
                 best_match_count = match_count
                 best_artist = artist
+                is_from_discard = False
 
-        # If no good match, steal randomly 20% of the time for variety
-        if not best_artist and available_artists and random.random() < 0.2:
-            best_artist = random.choice(available_artists)
+        # Check discard option
+        if discard_option:
+            artist_type = discard_option.get_property("art_type")
+            match_count = sum(1 for work in player.hand.cards
+                            if work.get_property("art_type") == artist_type)
+            if match_count > best_match_count:
+                best_match_count = match_count
+                best_artist = discard_option
+                is_from_discard = True
 
-        return best_artist
+        # Only steal if we have at least 1 matching work (beneficial)
+        if best_match_count > 0:
+            return (best_artist, is_from_discard)
+        else:
+            return (None, False)
 
     def should_take_discard_artist(
         self,
