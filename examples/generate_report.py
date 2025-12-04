@@ -1425,9 +1425,16 @@ class SimulationReport:
                     plt.savefig(img_path, dpi=self.plot_style['dpi'], bbox_inches='tight')
                     plt.close()
 
-                    # Adjust image height in PDF
-                    pdf_height = max(5*inch, min(20*inch, num_matchups * 0.2*inch))
-                    self.story.append(Image(img_path, width=6.5*inch, height=pdf_height))
+                    # Adjust image size in PDF - constrain to page limits
+                    # Page frame is ~456 points wide and ~690 points tall
+                    # Using 6.3 inches width (453.6 points) and max 9.5 inches height (684 points)
+                    pdf_height = max(4*inch, min(9.5*inch, num_matchups * 0.18*inch))
+
+                    # If the image is very tall, add a page break before it
+                    if pdf_height > 8*inch:
+                        self.story.append(PageBreak())
+
+                    self.story.append(Image(img_path, width=6.3*inch, height=pdf_height))
                     self.story.append(Spacer(1, 0.2*inch))
                 else:
                     note = Paragraph(
