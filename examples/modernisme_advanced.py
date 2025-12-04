@@ -86,6 +86,13 @@ class ModernismeAdvancedPlayer(Player):
         self.turn_stats: List[dict] = []
         self.current_turn_stats: dict = {}
 
+        # Game-level artist acquisition tracking (persists across turns)
+        self.artists_acquired: dict = {
+            'from_discards': 0,
+            'from_drawn': 0,
+            'from_nearest': 0
+        }
+
     def start_turn(self, season: int, turn_number: int):
         """Initialize statistics tracking for a new turn."""
         from collections import defaultdict
@@ -129,24 +136,27 @@ class ModernismeAdvancedPlayer(Player):
             artist: The artist card acquired
             source: One of 'from_drawn', 'from_discards', 'from_nearest'
         """
-        if not self.current_turn_stats:
-            return
-
-        # Track artist type
-        art_type = artist.get_property("art_type")
-        if art_type:
-            type_key = art_type.value  # Get string value from enum
-            self.current_turn_stats['artists_by_type'][type_key] += 1
-
-        # Track artist theme
-        theme = artist.get_property("theme")
-        if theme and theme != Theme.NONE:
-            theme_key = theme.value  # Get string value from enum
-            self.current_turn_stats['artists_by_theme'][theme_key] += 1
-
-        # Track acquisition source
+        # Track at game level (always works, even when stealing during neighbor's turn)
         if source in ['from_drawn', 'from_discards', 'from_nearest']:
-            self.current_turn_stats[f'artists_{source}'] += 1
+            self.artists_acquired[source] += 1
+
+        # Track at turn level (only when we have active turn stats)
+        if self.current_turn_stats:
+            # Track artist type
+            art_type = artist.get_property("art_type")
+            if art_type:
+                type_key = art_type.value  # Get string value from enum
+                self.current_turn_stats['artists_by_type'][type_key] += 1
+
+            # Track artist theme
+            theme = artist.get_property("theme")
+            if theme and theme != Theme.NONE:
+                theme_key = theme.value  # Get string value from enum
+                self.current_turn_stats['artists_by_theme'][theme_key] += 1
+
+            # Track acquisition source at turn level
+            if source in ['from_drawn', 'from_discards', 'from_nearest']:
+                self.current_turn_stats[f'artists_{source}'] += 1
 
     def check_milestone(self, game: 'ModernismeAdvancedGame') -> bool:
         """Check if player has passed a VP milestone and should pick an advantage card."""
@@ -563,14 +573,10 @@ class ModernismeAdvancedGame(Game):
             for theme in ['Nature', 'Mythology', 'Society', 'Orientalism']:
                 data[f'p{position}_artists_{theme.lower()}'] = artists_by_theme.get(theme, 0)
 
-            # Artist acquisition source tracking
-            total_from_discards = sum(turn.get('artists_from_discards', 0) for turn in player.turn_stats)
-            total_from_drawn = sum(turn.get('artists_from_drawn', 0) for turn in player.turn_stats)
-            total_from_nearest = sum(turn.get('artists_from_nearest', 0) for turn in player.turn_stats)
-
-            data[f'p{position}_from_discards'] = total_from_discards
-            data[f'p{position}_from_drawn'] = total_from_drawn
-            data[f'p{position}_from_nearest'] = total_from_nearest
+            # Artist acquisition source tracking (use game-level tracking which handles neighbor steals)
+            data[f'p{position}_from_discards'] = player.artists_acquired['from_discards']
+            data[f'p{position}_from_drawn'] = player.artists_acquired['from_drawn']
+            data[f'p{position}_from_nearest'] = player.artists_acquired['from_nearest']
 
         winner = max(self.players, key=lambda p: (p.score, -sum(1 for slot in self.get_board(f"{p.name}_board").slots if not slot.is_empty())))
         winner_position = self.players.index(winner) + 1
@@ -1135,28 +1141,49 @@ class ModernismeAdvancedGame(Game):
             artist_deck.shuffle()
             self.artist_discard = [self.artist_discard[-1]]
 
-        # Draw 2 artists for player to choose from
-        drawn_artists = artist_deck.draw(min(2, len(artist_deck.cards)))
-        if len(drawn_artists) < 2 and not artist_deck.is_empty():
-            # If we only got 1, try to draw another after reshuffling
-            if artist_deck.is_empty():
-                artist_deck.cards = self.artist_discard[:-1]
-                artist_deck.shuffle()
-                self.artist_discard = [self.artist_discard[-1]]
-            if not artist_deck.is_empty():
-                drawn_artists.extend(artist_deck.draw(1))
+        # Check if there's a visible artist in the discard pile
+        discard_artist = self.artist_discard[-1] if self.artist_discard else None
 
-        if not drawn_artists:
-            self.log(f"  No artists available to hire!")
-            return
+        # Let player decide: take from discard or draw 2 new artists
+        take_from_discard = False
+        if discard_artist and player.ai_strategy:
+            # Strategy decides whether to take the discard artist
+            take_from_discard = player.ai_strategy.should_take_discard_artist(player, self, discard_artist)
 
-        self.log(f"  Available artists: {[a.name for a in drawn_artists]}")
+        selected_artist = None
+        acquisition_source = 'from_drawn'
 
-        # Player selects which artist to hire
-        if player.ai_strategy and len(drawn_artists) > 1:
-            selected_artist = player.ai_strategy.select_artist_to_hire(player, self, drawn_artists)
+        if take_from_discard and discard_artist:
+            # Take the artist from the discard pile
+            selected_artist = self.artist_discard.pop()
+            acquisition_source = 'from_discards'
+            self.log(f"  {player.name} took {selected_artist.name} from discard pile")
+            drawn_artists = []  # No artists drawn, so none for neighbor to steal
         else:
-            selected_artist = drawn_artists[0]
+            # Draw 2 artists for player to choose from
+            drawn_artists = artist_deck.draw(min(2, len(artist_deck.cards)))
+            if len(drawn_artists) < 2 and not artist_deck.is_empty():
+                # If we only got 1, try to draw another after reshuffling
+                if artist_deck.is_empty():
+                    artist_deck.cards = self.artist_discard[:-1]
+                    artist_deck.shuffle()
+                    self.artist_discard = [self.artist_discard[-1]]
+                if not artist_deck.is_empty():
+                    drawn_artists.extend(artist_deck.draw(1))
+
+            if not drawn_artists:
+                self.log(f"  No artists available to hire!")
+                return
+
+            self.log(f"  Available artists: {[a.name for a in drawn_artists]}")
+
+            # Player selects which artist to hire
+            if player.ai_strategy and len(drawn_artists) > 1:
+                selected_artist = player.ai_strategy.select_artist_to_hire(player, self, drawn_artists)
+            else:
+                selected_artist = drawn_artists[0]
+
+            self.log(f"  {player.name} hired {selected_artist.name}")
 
         # Player selects which of their active artists to dismiss
         if player.ai_strategy:
@@ -1169,13 +1196,17 @@ class ModernismeAdvancedGame(Game):
         player.active_artists[dismiss_index] = selected_artist
 
         # Track artist acquisition
-        player.track_artist_acquisition(selected_artist, 'from_drawn')
+        player.track_artist_acquisition(selected_artist, acquisition_source)
 
-        self.log(f"  {player.name} hired {selected_artist.name}, dismissed {artist_to_dismiss.name}")
+        self.log(f"  Dismissed {artist_to_dismiss.name}")
 
-        # Prepare options for neighbor to steal
-        unchosen_artists = [a for a in drawn_artists if a != selected_artist]
-        available_for_neighbor = unchosen_artists + [artist_to_dismiss]
+        # Prepare options for neighbor to steal (only if we drew artists)
+        if drawn_artists:
+            unchosen_artists = [a for a in drawn_artists if a != selected_artist]
+            available_for_neighbor = unchosen_artists + [artist_to_dismiss]
+        else:
+            # If we took from discard, neighbor can only steal the dismissed artist
+            available_for_neighbor = [artist_to_dismiss]
 
         # Neighbor can steal one of the unchosen or dismissed artists
         if neighbor and available_for_neighbor:

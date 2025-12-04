@@ -244,12 +244,12 @@ class Strategy(ABC):
         Returns:
             The artist to steal, or None if shouldn't steal
         """
-        # Default: steal if there's an artist that matches many works in hand
+        # Default: steal if there's an artist that matches works in hand
         if not available_artists:
             return None
 
         best_artist = None
-        best_match_count = 2  # Only steal if at least 2 matches
+        best_match_count = 0  # Steal if at least 1 match (lowered from 2)
 
         for artist in available_artists:
             artist_type = artist.get_property("art_type")
@@ -259,7 +259,37 @@ class Strategy(ABC):
                 best_match_count = match_count
                 best_artist = artist
 
+        # If no good match, steal randomly 20% of the time for variety
+        if not best_artist and available_artists and random.random() < 0.2:
+            best_artist = random.choice(available_artists)
+
         return best_artist
+
+    def should_take_discard_artist(
+        self,
+        player: 'ModernismePlayer',
+        game: 'ModernismeGame',
+        discard_artist: 'Card'
+    ) -> bool:
+        """
+        Decide whether to take the visible artist from the discard pile
+        instead of drawing 2 new artists.
+
+        Args:
+            player: The player making the decision
+            game: The game instance
+            discard_artist: The visible artist on top of the discard pile
+
+        Returns:
+            True if should take the discard artist, False to draw new ones
+        """
+        # Default strategy: take from discard if it matches 2+ works in hand
+        artist_type = discard_artist.get_property("art_type")
+        match_count = sum(1 for work in player.hand.cards
+                        if work.get_property("art_type") == artist_type)
+
+        # Take it if we have 2+ matching works
+        return match_count >= 2
 
     def get_commissionable_works(
         self,
